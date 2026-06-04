@@ -1,0 +1,134 @@
+---
+title: "GET /genero/:genero — Browse Vinyl Releases by Genre"
+sidebarTitle: "GET /genero/:genero"
+description: "Browse vinyl releases filtered by Discogs genre, sorted by community collection count. Returns paginated results cached for 24 hours."
+---
+
+Browse the Discogs catalog filtered to a specific genre. Results are sorted by `have` (community collection count) in descending order, so the most widely-owned releases in that genre appear first — a reliable proxy for cultural significance and demand. Each page of 20 results is cached in Redis under the key `genero:{genre}:{page}` for **24 hours**.
+
+<Note>
+  Genre names are **case-sensitive** on the Discogs API. Use the canonical
+  Discogs genre names: `Rock`, `Jazz`, `Electronic`, `Hip Hop`,
+  `Folk, World, & Country`, `Classical`, `Blues`, `Reggae`, `Latin`,
+  `Pop`, `Funk / Soul`, `Non-Music`, `Stage & Screen`, `Children's`.
+</Note>
+
+## Endpoint
+
+| Property       | Value                              |
+| -------------- | ---------------------------------- |
+| **Method**     | `GET`                              |
+| **Path**       | `/genero/:genero`                  |
+| **Auth**       | None                               |
+| **Cache TTL**  | 24 hours per (genre, page)         |
+
+## Request Parameters
+
+<ParamField path="genero" type="string" required>
+  The Discogs genre name to filter by. URL-encoded automatically — spaces should
+  be encoded as `%20` or `+` in the URL. Examples: `Rock`, `Jazz`, `Electronic`,
+  `Hip%20Hop`.
+</ParamField>
+
+<ParamField query="pagina" type="integer" default={1}>
+  Page number to retrieve. Each page contains up to 20 results. Starts at `1`.
+</ParamField>
+
+## Response Fields
+
+<ResponseField name="resultados" type="array" required>
+  Array of release objects for the requested genre and page.
+
+  <Expandable title="resultados[n] — release object">
+    <ResponseField name="discogs_id" type="string">
+      The Discogs release ID, cast to a string.
+    </ResponseField>
+    <ResponseField name="titulo" type="string">
+      Album or release title.
+    </ResponseField>
+    <ResponseField name="artista" type="string | null">
+      Artist name with Discogs disambiguation suffixes stripped, or `null`.
+    </ResponseField>
+    <ResponseField name="anio" type="integer | null">
+      Release year as a four-digit integer, or `null`.
+    </ResponseField>
+    <ResponseField name="genero" type="string | null">
+      Primary genre from Discogs, or `null`.
+    </ResponseField>
+    <ResponseField name="estilo" type="string | null">
+      Primary style from Discogs, or `null`.
+    </ResponseField>
+    <ResponseField name="imagen_url" type="string | null">
+      Cover image URL hosted on Discogs, or `null`.
+    </ResponseField>
+    <ResponseField name="precio" type="number">
+      Computed retail price in USD, rounded to two decimal places.
+    </ResponseField>
+    <ResponseField name="have" type="integer">
+      Number of Discogs users who have this release in their collection.
+    </ResponseField>
+    <ResponseField name="want" type="integer">
+      Number of Discogs users who want this release.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="total" type="integer" required>
+  Total number of releases in this genre across all pages.
+</ResponseField>
+
+<ResponseField name="paginas" type="integer" required>
+  Total number of pages available for this genre.
+</ResponseField>
+
+<ResponseField name="pagina" type="integer" required>
+  The current page number that was returned (mirrors the `pagina` query parameter).
+</ResponseField>
+
+## Example Request
+
+```bash
+curl "https://api.vinylvibes.example.com/genero/Jazz?pagina=1"
+```
+
+## Example Response
+
+```json
+{
+  "resultados": [
+    {
+      "discogs_id": "3086827",
+      "titulo": "Kind Of Blue",
+      "artista": "Miles Davis",
+      "anio": 1959,
+      "genero": "Jazz",
+      "estilo": "Cool Jazz",
+      "imagen_url": "https://i.discogs.com/kind-of-blue-cover.jpg",
+      "precio": 39.99,
+      "have": 98100,
+      "want": 42300
+    },
+    {
+      "discogs_id": "1217226",
+      "titulo": "A Love Supreme",
+      "artista": "John Coltrane",
+      "anio": 1965,
+      "genero": "Jazz",
+      "estilo": "Hard Bop",
+      "imagen_url": "https://i.discogs.com/a-love-supreme-cover.jpg",
+      "precio": 39.99,
+      "have": 72800,
+      "want": 35600
+    }
+  ],
+  "total": 198430,
+  "paginas": 9922,
+  "pagina": 1
+}
+```
+
+## Error Responses
+
+| Status | Error message                                  | Cause                                             |
+| ------ | ---------------------------------------------- | ------------------------------------------------- |
+| `500`  | `"Error al obtener discos por género."`        | Discogs API request failed or returned an error.  |

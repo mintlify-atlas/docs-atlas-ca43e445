@@ -1,0 +1,182 @@
+---
+title: "POST /checkout — Process a Vinyl Purchase Order"
+sidebarTitle: "POST /checkout"
+description: "Submit a shopping cart and shipping address to create a purchase order. Prices are calculated server-side from Discogs stats; any client-supplied price is ignored."
+---
+
+`POST /checkout` creates a complete purchase order from the authenticated user's shopping cart. For each item the backend fetches current popularity stats from the Discogs API (`have` / `want` counts) and calculates the unit price server-side using the store's pricing algorithm. Any `precio` field sent by the client is silently ignored. Orders are created immediately with status `pagada`.
+
+---
+
+## Endpoint details
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **Path** | `/checkout` |
+| **Auth** | JWT required (`Authorization: Bearer <token>`) |
+
+---
+
+## Request body
+
+### `items` — cart items
+
+<ParamField body="items" type="array" required>
+  A non-empty array of vinyl releases to purchase.
+
+  <Expandable title="Item object">
+    <ParamField body="discogs_id" type="string" required>
+      Discogs release ID (e.g. `"249504"`).
+    </ParamField>
+
+    <ParamField body="titulo" type="string" required>
+      Title of the vinyl release.
+    </ParamField>
+
+    <ParamField body="artista" type="string" required>
+      Artist name of the release.
+    </ParamField>
+
+    <ParamField body="cantidad" type="integer" required>
+      Number of copies to purchase. Must be a positive integer (`>= 1`).
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### `envio` — shipping address
+
+<ParamField body="envio" type="object" required>
+  Shipping address for the order.
+
+  <Expandable title="Envio object">
+    <ParamField body="nombre_receptor" type="string" required>
+      Full name of the person receiving the shipment.
+    </ParamField>
+
+    <ParamField body="calle" type="string" required>
+      Street name.
+    </ParamField>
+
+    <ParamField body="numero_ext" type="string" required>
+      Exterior number.
+    </ParamField>
+
+    <ParamField body="numero_int" type="string">
+      Interior number, apartment, or suite (optional).
+    </ParamField>
+
+    <ParamField body="colonia" type="string" required>
+      Neighborhood / colonia.
+    </ParamField>
+
+    <ParamField body="ciudad" type="string" required>
+      City.
+    </ParamField>
+
+    <ParamField body="estado" type="string" required>
+      State or province.
+    </ParamField>
+
+    <ParamField body="codigo_postal" type="string" required>
+      Postal / ZIP code.
+    </ParamField>
+
+    <ParamField body="referencias" type="string">
+      Delivery instructions or landmark references (optional).
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<Warning>
+  Do **not** include a `precio` field in any item object — the backend ignores it entirely and recalculates the price from live Discogs `have`/`want` data. The price shown in the response is always authoritative.
+</Warning>
+
+---
+
+## Example request
+
+```bash
+curl -X POST https://api.vinylvibes.example/checkout \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "items": [
+      {
+        "discogs_id": "249504",
+        "titulo": "The Dark Side of the Moon",
+        "artista": "Pink Floyd",
+        "cantidad": 1
+      }
+    ],
+    "envio": {
+      "nombre_receptor": "Alejandro Ibáñez",
+      "calle": "Av. Insurgentes Sur",
+      "numero_ext": "1602",
+      "numero_int": "4B",
+      "colonia": "Crédito Constructor",
+      "ciudad": "Ciudad de México",
+      "estado": "CDMX",
+      "codigo_postal": "03940",
+      "referencias": "Edificio azul, interfón 4B"
+    }
+  }'
+```
+
+---
+
+## Response — 201 Created
+
+```json
+{
+  "mensaje": "¡Compra procesada exitosamente!",
+  "id_venta": 42,
+  "total": "29.99"
+}
+```
+
+<ResponseField name="mensaje" type="string">
+  Human-readable confirmation message.
+</ResponseField>
+
+<ResponseField name="id_venta" type="integer">
+  Unique ID of the newly created order. Use this to look up the order later via `GET /mis-compras` or `GET /admin/ventas/:id`.
+</ResponseField>
+
+<ResponseField name="total" type="string">
+  Order total formatted to exactly two decimal places (e.g. `"29.99"`). Stored as a decimal in the database to avoid floating-point drift.
+</ResponseField>
+
+---
+
+## Error responses
+
+| Status | Condition | Error message |
+|--------|-----------|---------------|
+| `400` | `items` is missing, not an array, or empty | `"El carrito está vacío."` |
+| `400` | An item is missing `discogs_id`, `titulo`, or `artista` | `"Cada ítem debe tener discogs_id, titulo y artista."` |
+| `400` | `cantidad` is not a positive integer | `"La cantidad debe ser un entero positivo."` |
+| `400` | `envio` is missing any required field | `"Los datos de envío son requeridos."` |
+| `401` | JWT is absent or malformed | `"Token de autenticación requerido."` |
+| `401` | JWT is expired or invalid | `"Token inválido o expirado. Vuelve a iniciar sesión."` |
+| `500` | Unexpected server or database error | `"Error al procesar la compra."` |
+
+---
+
+## Order state
+
+All orders created through `POST /checkout` start with status **`pagada`**. Admins can transition an order through its lifecycle via `PUT /admin/ventas/:id/estado`.
+
+Valid status values:
+
+| State | Meaning |
+|-------|---------|
+| `pendiente` | Order placed but payment not confirmed |
+| `pagada` | Payment confirmed (default for all new orders) |
+| `enviada` | Order handed to the courier |
+| `entregada` | Order delivered to the recipient |
+| `cancelada` | Order cancelled |
+
+<Tip>
+  Subscribe to order status changes in your frontend by polling `GET /mis-compras` — each order object includes the current `estado` field.
+</Tip>

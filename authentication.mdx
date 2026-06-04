@@ -1,0 +1,147 @@
+---
+title: "Authenticate with VinylVibes API Using JWT"
+sidebarTitle: "Authentication"
+description: "VinylVibes API uses JWT bearer tokens for authentication. Tokens are issued at login, expire in 7 days, and encode user ID, name, and role."
+---
+
+VinylVibes API uses **JSON Web Tokens (JWT)** for authentication. When you log in, the server signs a token with `JWT_SECRET` and returns it to you. Every subsequent request to a protected endpoint must include that token in the `Authorization` header. Tokens carry a payload of `{id, nombre, rol}` and expire after **7 days**.
+
+## Obtaining a token
+
+Send your credentials to `POST /login`. A stricter rate limit applies to this endpoint — a maximum of **10 attempts per 15 minutes** per IP.
+
+```bash
+curl -X POST https://your-api.onrender.com/login \
+  -H "Content-Type: application/json" \
+  -d '{"nombre_usuario": "testuser", "password": "mypassword123"}'
+```
+
+**Response `200 OK`**
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwibm9tYnJlIjoidGVzdHVzZXIiLCJyb2wiOiJjbGllbnRlIiwiaWF0IjoxNzE2MDAwMDAwLCJleHAiOjE3MTY2MDQ4MDB9.abc123",
+  "nombre": "testuser",
+  "es_admin": false,
+  "es_demo": false
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `token` | `string` | Signed JWT to include in all protected requests |
+| `nombre` | `string` | Username as stored in the database |
+| `es_admin` | `boolean` | `true` when the account's role is `admin` |
+| `es_demo` | `boolean` | `true` when the account's role is `demo` (read-only admin access) |
+
+The decoded JWT payload contains:
+
+```json
+{
+  "id": 1,
+  "nombre": "testuser",
+  "rol": "cliente"
+}
+```
+
+## Using the token
+
+Pass the token as a `Bearer` token in the `Authorization` header on every protected request.
+
+```bash
+curl https://your-api.onrender.com/checkout \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+Save the token to a shell variable so you don't have to paste it repeatedly:
+
+```bash
+TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+curl https://your-api.onrender.com/historial \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Token expiry
+
+Tokens are issued with `expiresIn: "7d"` and are valid for exactly **7 days** from the moment of login. Once a token expires, all requests using it will receive:
+
+**Response `401 Unauthorized`**
+
+```json
+{
+  "error": "Token inválido o expirado. Vuelve a iniciar sesión."
+}
+```
+
+There is no refresh-token mechanism. Re-authenticate with `POST /login` to obtain a new 7-day token.
+
+## User roles
+
+Every account has exactly one role, assigned at registration or changed later by an admin.
+
+| Role | Description |
+|---|---|
+| `cliente` | Default role assigned at `POST /registro`. Can browse the catalog, manage their own browsing history, place orders, and view their own purchase history. |
+| `vendedor` | Reserved for future inventory management features. Currently has the same access as `cliente`. |
+| `admin` | Full access: all user endpoints plus all admin endpoints (`/admin/usuarios`, `/admin/ventas`, `/redis-ping`). Can read and write. |
+| `demo` | Read-only admin access. Can call all `GET` admin endpoints but is blocked from any endpoint that mutates data (returns `403`). Intended for dashboard previews and demos. |
+
+The `demo` role can **read** admin endpoints but **cannot write**. Any attempt to call a mutating endpoint (e.g. `PUT /admin/usuarios/:id/rol`, `DELETE /admin/usuarios/:id`, `PUT /admin/ventas/:id/estado`) returns:
+
+```json
+{
+  "error": "Tu cuenta es de solo lectura. No puedes realizar esta acción."
+}
+```
+
+## Protected vs public endpoints
+
+### Public — no token required
+
+| Method | Route | Description |
+|---|---|---|
+| `POST` | `/registro` | Create a new account |
+| `POST` | `/login` | Log in and receive a JWT |
+| `GET` | `/buscar` | Search the Discogs catalog |
+| `GET` | `/recientes` | Releases from the current year |
+| `GET` | `/genero/:genero` | Releases filtered by genre |
+| `GET` | `/disco/:id` | Full release detail |
+| `GET` | `/disco/:id/historia` | Album history from Last.fm |
+| `GET` | `/disco/:id/video` | Album video from YouTube |
+| `GET` | `/disco/:id/recomendaciones` | Recommendations (anonymous or token-enhanced) |
+
+### Protected — JWT required
+
+| Method | Route | Description |
+|---|---|---|
+| `POST` | `/historial` | Record a viewed release (max 10 per user) |
+| `GET` | `/historial` | Get the authenticated user's browsing history |
+| `POST` | `/checkout` | Place an order |
+| `GET` | `/mis-compras` | Get the authenticated user's purchase history |
+
+### Admin-only — `admin` or `demo` role required
+
+| Method | Route | Writes? | Description |
+|---|---|---|---|
+| `GET` | `/admin/usuarios` | No | List all users |
+| `PUT` | `/admin/usuarios/:id/rol` | Yes | Change a user's role |
+| `DELETE` | `/admin/usuarios/:id` | Yes | Delete a user |
+| `GET` | `/admin/ventas` | No | List all orders |
+| `GET` | `/admin/ventas/:id` | No | Get order detail |
+| `PUT` | `/admin/ventas/:id/estado` | Yes | Update an order's status |
+| `GET` | `/redis-ping` | No | Redis diagnostics |
+
+<Info>
+  The `demo` role can access all admin-only endpoints marked **No** in the "Writes?" column. It is blocked from all **Yes** rows.
+</Info>
+
+## Error responses
+
+| HTTP Status | Error message | When it occurs |
+|---|---|---|
+| `401` | `Token de autenticación requerido.` | The `Authorization` header is missing or does not start with `Bearer `. |
+| `401` | `Token inválido o expirado. Vuelve a iniciar sesión.` | The token signature is invalid, the token has expired, or the token has been tampered with. |
+| `403` | `Acceso denegado: se requieren permisos de administrador.` | A `cliente` or `vendedor` account attempts to access an admin-only endpoint. |
+| `403` | `Tu cuenta es de solo lectura. No puedes realizar esta acción.` | A `demo` account attempts to call a write endpoint. |

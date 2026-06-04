@@ -1,0 +1,110 @@
+---
+title: "GET /recientes — Browse This Year's New Vinyl Releases"
+sidebarTitle: "GET /recientes"
+description: "Returns up to 20 vinyl releases published in the current year, sorted by date added on Discogs. Results are cached globally for 24 hours."
+---
+
+Retrieve up to 20 vinyl releases added to Discogs during the **current calendar year**, sorted by `date_added` in descending order so the newest additions appear first. This endpoint is ideal for powering a "New Arrivals" or "Fresh Stock" section in your storefront. The result is cached in Redis under the key `recientes` for **24 hours** — the cache is shared across all users and is invalidated automatically when it expires.
+
+<Info>
+  The current year is determined at request time on the server. The cache is
+  refreshed at most once every 24 hours, so releases added to Discogs within
+  that window may not appear immediately.
+</Info>
+
+## Endpoint
+
+| Property       | Value               |
+| -------------- | ------------------- |
+| **Method**     | `GET`               |
+| **Path**       | `/recientes`        |
+| **Auth**       | None                |
+| **Cache TTL**  | 24 hours (shared)   |
+
+## Request Parameters
+
+This endpoint accepts no query parameters.
+
+## Response Fields
+
+The response is a **JSON array** of up to 20 release objects. Each object has the same shape as a result item from [`GET /buscar`](/api/catalog/search).
+
+<ResponseField name="[n]" type="object">
+  A release object.
+
+  <Expandable title="Release object fields">
+    <ResponseField name="discogs_id" type="string">
+      The Discogs release ID, cast to a string.
+    </ResponseField>
+    <ResponseField name="titulo" type="string">
+      Album or release title.
+    </ResponseField>
+    <ResponseField name="artista" type="string | null">
+      Artist name with Discogs disambiguation suffixes stripped, or `null`.
+    </ResponseField>
+    <ResponseField name="anio" type="integer | null">
+      Release year as a four-digit integer, or `null`.
+    </ResponseField>
+    <ResponseField name="genero" type="string | null">
+      Primary genre from Discogs, or `null`.
+    </ResponseField>
+    <ResponseField name="estilo" type="string | null">
+      Primary style from Discogs, or `null`.
+    </ResponseField>
+    <ResponseField name="imagen_url" type="string | null">
+      Cover image URL hosted on Discogs, or `null`.
+    </ResponseField>
+    <ResponseField name="precio" type="number">
+      Computed retail price in USD, rounded to two decimal places.
+    </ResponseField>
+    <ResponseField name="have" type="integer">
+      Number of Discogs users who have this release in their collection.
+    </ResponseField>
+    <ResponseField name="want" type="integer">
+      Number of Discogs users who want this release.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl https://api.vinylvibes.example.com/recientes
+```
+
+## Example Response
+
+```json
+[
+  {
+    "discogs_id": "28471933",
+    "titulo": "Bright Future",
+    "artista": "Adrianne Lenker",
+    "anio": 2024,
+    "genero": "Folk, World, & Country",
+    "estilo": "Folk",
+    "imagen_url": "https://i.discogs.com/bright-future-cover.jpg",
+    "precio": 19.99,
+    "have": 1240,
+    "want": 890
+  },
+  {
+    "discogs_id": "28109847",
+    "titulo": "Chromakopia",
+    "artista": "Tyler, the Creator",
+    "anio": 2024,
+    "genero": "Hip Hop",
+    "estilo": "Conscious",
+    "imagen_url": "https://i.discogs.com/chromakopia-cover.jpg",
+    "precio": 19.99,
+    "have": 4310,
+    "want": 7850
+  }
+]
+```
+
+## Error Responses
+
+| Status | Error message                              | Cause                                              |
+| ------ | ------------------------------------------ | -------------------------------------------------- |
+| `500`  | `"Error al obtener discos recientes."`     | Discogs API request failed or returned an error.   |

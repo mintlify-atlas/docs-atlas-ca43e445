@@ -1,0 +1,181 @@
+---
+title: "Admin User Management Endpoints"
+sidebarTitle: "Users"
+description: "List all users, change a user's role, or delete a user. Requires admin or demo role; write operations require full admin."
+---
+
+The admin user endpoints let administrators inspect and manage VinylVibes user accounts. All three endpoints require at least `admin` or `demo` role; the two write operations (`PUT`, `DELETE`) are blocked for `demo` accounts, which are read-only by design.
+
+---
+
+## GET /admin/usuarios
+
+Returns a list of every registered user, ordered by registration date descending.
+
+| Property   | Value                              |
+| ---------- | ---------------------------------- |
+| **Method** | `GET`                              |
+| **Path**   | `/admin/usuarios`                  |
+| **Auth**   | JWT — `admin` or `demo` role       |
+
+### Request parameters
+
+No query parameters or request body required.
+
+### Response
+
+Returns an array of user objects.
+
+<ResponseField name="id_usuario" type="integer">
+  Unique identifier for the user.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  The user's username as provided at registration.
+</ResponseField>
+
+<ResponseField name="correo" type="string">
+  The user's email address. Auto-generated placeholder addresses follow the pattern `<username>@vinylvibes.local`.
+</ResponseField>
+
+<ResponseField name="rol" type="string">
+  The user's current role. One of `cliente`, `vendedor`, `admin`, or `demo`.
+</ResponseField>
+
+<ResponseField name="created_at" type="datetime">
+  ISO 8601 timestamp of when the account was created.
+</ResponseField>
+
+### Example request
+
+```bash
+curl -X GET https://api.vinylvibes.example/admin/usuarios \
+  -H "Authorization: Bearer <admin_token>"
+```
+
+### Example response
+
+```json
+[
+  {
+    "id_usuario": 12,
+    "nombre": "crate_digger",
+    "correo": "crate_digger@vinylvibes.local",
+    "rol": "cliente",
+    "created_at": "2024-11-03T14:22:08.000Z"
+  },
+  {
+    "id_usuario": 7,
+    "nombre": "juan_vendedor",
+    "correo": "juan_vendedor@vinylvibes.local",
+    "rol": "vendedor",
+    "created_at": "2024-09-15T09:01:54.000Z"
+  }
+]
+```
+
+### Error responses
+
+| Status | Description                                               |
+| ------ | --------------------------------------------------------- |
+| `401`  | Missing or invalid JWT token.                             |
+| `403`  | Authenticated user does not have `admin` or `demo` role.  |
+| `500`  | Internal server error while querying the database.        |
+
+---
+
+## PUT /admin/usuarios/:id/rol
+
+Updates the role of a specific user account.
+
+| Property   | Value                              |
+| ---------- | ---------------------------------- |
+| **Method** | `PUT`                              |
+| **Path**   | `/admin/usuarios/:id/rol`          |
+| **Auth**   | JWT — `admin` role only            |
+
+<Warning>
+  The `demo` role cannot be assigned via the API — only `cliente`, `vendedor`,
+  and `admin` are accepted. Requests authenticated with a `demo` token are also
+  rejected with `403`; demo accounts are read-only.
+</Warning>
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The unique identifier (`id_usuario`) of the user whose role you want to change.
+</ParamField>
+
+### Body parameters
+
+<ParamField body="rol" type="string" required>
+  The new role to assign. Must be one of `cliente`, `vendedor`, or `admin`.
+</ParamField>
+
+### Response
+
+```json
+{
+  "mensaje": "Rol actualizado a \"admin\"."
+}
+```
+
+### Example request
+
+```bash
+curl -X PUT https://api.vinylvibes.example/admin/usuarios/12/rol \
+  -H "Authorization: Bearer <admin_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"rol": "vendedor"}'
+```
+
+### Error responses
+
+| Status | Description                                                                 |
+| ------ | --------------------------------------------------------------------------- |
+| `400`  | `rol` is missing or not one of `cliente`, `vendedor`, `admin`.              |
+| `401`  | Missing or invalid JWT token.                                               |
+| `403`  | Authenticated user is not `admin`, or is a `demo` account (write blocked).  |
+| `500`  | Internal server error while updating the database.                          |
+
+---
+
+## DELETE /admin/usuarios/:id
+
+Permanently deletes a user account. An admin cannot delete their own account.
+
+| Property   | Value                              |
+| ---------- | ---------------------------------- |
+| **Method** | `DELETE`                           |
+| **Path**   | `/admin/usuarios/:id`              |
+| **Auth**   | JWT — `admin` role only            |
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The unique identifier (`id_usuario`) of the user to delete.
+</ParamField>
+
+### Response
+
+```json
+{
+  "mensaje": "Usuario eliminado."
+}
+```
+
+### Example request
+
+```bash
+curl -X DELETE https://api.vinylvibes.example/admin/usuarios/12 \
+  -H "Authorization: Bearer <admin_token>"
+```
+
+### Error responses
+
+| Status | Description                                                                                          |
+| ------ | ---------------------------------------------------------------------------------------------------- |
+| `400`  | The `id` in the path matches the currently authenticated admin's own account — self-deletion is blocked. Returns `{"error": "No puedes eliminarte a ti mismo."}`. |
+| `401`  | Missing or invalid JWT token.                                                                        |
+| `403`  | Authenticated user is not `admin`, or is a `demo` account (write blocked).                           |
+| `500`  | Internal server error while deleting from the database.                                              |

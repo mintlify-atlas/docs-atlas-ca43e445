@@ -1,0 +1,178 @@
+---
+title: "Browsing History Endpoints — Track and Retrieve Viewed Records"
+sidebarTitle: "Browsing History"
+description: "POST /historial records a viewed vinyl release; GET /historial retrieves the user's last 50 viewed records. Both require a valid JWT token."
+---
+
+The browsing history endpoints let clients record and retrieve the records a user has viewed. The history is capped at **10 unique items per user** — when a new item is added and the cap is reached, the oldest entry is evicted (FIFO). Duplicate `discogs_id` values are upserted: if the release is already in the user's history, the server updates its `visto_en` timestamp instead of creating a duplicate row.
+
+---
+
+## POST /historial
+
+Record a vinyl release that the authenticated user has just viewed.
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **Path** | `/historial` |
+| **Auth** | JWT required (`Authorization: Bearer <token>`) |
+
+### Request body
+
+<ParamField body="discogs_id" type="string" required>
+  The Discogs release ID for the viewed record (e.g. `"249504"`).
+</ParamField>
+
+<ParamField body="titulo" type="string" required>
+  Title of the vinyl release as returned by the Discogs API.
+</ParamField>
+
+<ParamField body="artista" type="string" required>
+  Artist name for the release.
+</ParamField>
+
+<ParamField body="genero" type="string">
+  Primary genre of the release (e.g. `"Rock"`, `"Jazz"`). Used to power personalised recommendations — omitting it degrades recommendation quality.
+</ParamField>
+
+<ParamField body="estilo" type="string">
+  Primary style sub-tag of the release (e.g. `"Classic Rock"`, `"Bebop"`).
+</ParamField>
+
+### Responses
+
+**201 — History updated**
+
+```json
+{
+  "mensaje": "Historial actualizado."
+}
+```
+
+**400 — Missing required fields**
+
+```json
+{
+  "error": "discogs_id, titulo y artista son requeridos."
+}
+```
+
+**401 — Invalid or missing token**
+
+```json
+{
+  "error": "Token de autenticación requerido."
+}
+```
+
+```json
+{
+  "error": "Token inválido o expirado. Vuelve a iniciar sesión."
+}
+```
+
+### Example
+
+```bash
+curl -X POST https://api.vinylvibes.example/historial \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "discogs_id": "249504",
+    "titulo": "The Dark Side of the Moon",
+    "artista": "Pink Floyd",
+    "genero": "Rock",
+    "estilo": "Psychedelic Rock"
+  }'
+```
+
+---
+
+## GET /historial
+
+Retrieve the authenticated user's browsing history, sorted from most recently viewed to oldest.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **Path** | `/historial` |
+| **Auth** | JWT required (`Authorization: Bearer <token>`) |
+
+### Request params
+
+No query parameters. The user is identified entirely from the JWT payload.
+
+### Response
+
+Returns a JSON array of up to 50 history objects, ordered newest first.
+
+<ResponseField name="id" type="integer">
+  Primary key of the history row.
+</ResponseField>
+
+<ResponseField name="id_usuario" type="integer">
+  ID of the user who viewed the record.
+</ResponseField>
+
+<ResponseField name="discogs_id" type="string">
+  Discogs release ID of the viewed record.
+</ResponseField>
+
+<ResponseField name="titulo" type="string">
+  Title of the release.
+</ResponseField>
+
+<ResponseField name="artista" type="string">
+  Artist name of the release.
+</ResponseField>
+
+<ResponseField name="genero" type="string | null">
+  Genre recorded at view time. `null` if not supplied when the history entry was created.
+</ResponseField>
+
+<ResponseField name="estilo" type="string | null">
+  Style sub-tag recorded at view time. `null` if not supplied.
+</ResponseField>
+
+<ResponseField name="visto_en" type="string">
+  ISO 8601 datetime of the most recent view (e.g. `"2024-11-03T18:45:00.000Z"`).
+</ResponseField>
+
+### Example
+
+```bash
+curl https://api.vinylvibes.example/historial \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**200 response**
+
+```json
+[
+  {
+    "id": 88,
+    "id_usuario": 5,
+    "discogs_id": "249504",
+    "titulo": "The Dark Side of the Moon",
+    "artista": "Pink Floyd",
+    "genero": "Rock",
+    "estilo": "Psychedelic Rock",
+    "visto_en": "2024-11-03T18:45:00.000Z"
+  },
+  {
+    "id": 74,
+    "id_usuario": 5,
+    "discogs_id": "870745",
+    "titulo": "Kind of Blue",
+    "artista": "Miles Davis",
+    "genero": "Jazz",
+    "estilo": "Modal",
+    "visto_en": "2024-11-02T11:20:00.000Z"
+  }
+]
+```
+
+<Note>
+  Although the store caps history at **10 items per user**, `GET /historial` returns up to **50 records**. This higher limit accommodates history rows that existed before the per-user cap was introduced, ensuring no legacy data is silently dropped.
+</Note>

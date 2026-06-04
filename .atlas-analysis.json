@@ -1,0 +1,85 @@
+{
+  "projectType": "api-service",
+  "projectName": "VinylVibes API",
+  "projectDescription": "A REST API backend for a vinyl record store, built with Node.js, Express, Prisma (PostgreSQL), and Redis, integrating Discogs, Last.fm, and YouTube for catalog data.",
+  "theme": "luma",
+  "primaryColor": "#6B21A8",
+  "lightColor": "#A855F7",
+  "darkColor": "#3B0764",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart", "authentication"]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": ["concepts/architecture", "concepts/pricing", "concepts/caching", "concepts/rate-limiting"]
+          },
+          {
+            "group": "Data Model",
+            "pages": ["data-model/overview", "data-model/users-roles"]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Auth",
+            "pages": ["api/auth/register", "api/auth/login"]
+          },
+          {
+            "group": "Catalog",
+            "pages": ["api/catalog/search", "api/catalog/recent", "api/catalog/by-genre", "api/catalog/detail", "api/catalog/history", "api/catalog/video", "api/catalog/recommendations"]
+          },
+          {
+            "group": "User",
+            "pages": ["api/user/browsing-history", "api/user/checkout", "api/user/purchases"]
+          },
+          {
+            "group": "Admin",
+            "pages": ["api/admin/users", "api/admin/sales", "api/admin/redis-ping"]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "JWT authentication with bcrypt password hashing and 7-day token expiry",
+    "Vinyl catalog browsing via Discogs API (search, recent releases, genre filtering, release details)",
+    "Album enrichment with Last.fm (history/biography) and YouTube (music video lookup)",
+    "Server-side price calculation based on release year and Discogs want/have popularity ratio",
+    "Redis caching layer with per-endpoint TTLs (1 hour to 7 days) to protect external API rate limits",
+    "Shopping cart checkout with backend price validation (client-supplied prices are ignored)",
+    "Browsing history tracking per user (capped at 10 items, FIFO eviction)",
+    "Personalized recommendations combining Last.fm similar artists, genre matching, and user history",
+    "Role-based access control with four roles: cliente, vendedor, admin, demo",
+    "Global rate limiting (100 req/min) plus stricter auth endpoint limiting (10/15 min)"
+  ],
+  "publicApiSurface": [
+    "POST /registro",
+    "POST /login",
+    "GET /buscar?q=&pagina=",
+    "GET /recientes",
+    "GET /genero/:genero?pagina=",
+    "GET /disco/:id",
+    "GET /disco/:id/historia",
+    "GET /disco/:id/video",
+    "GET /disco/:id/recomendaciones",
+    "POST /historial",
+    "GET /historial",
+    "POST /checkout",
+    "GET /mis-compras",
+    "GET /admin/usuarios",
+    "PUT /admin/usuarios/:id/rol",
+    "DELETE /admin/usuarios/:id",
+    "GET /admin/ventas",
+    "GET /admin/ventas/:id",
+    "PUT /admin/ventas/:id/estado",
+    "GET /redis-ping"
+  ]
+}

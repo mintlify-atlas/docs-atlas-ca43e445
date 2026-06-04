@@ -1,0 +1,97 @@
+---
+title: "GET /disco/:id/video — Find a YouTube Video for an Album"
+sidebarTitle: "GET /disco/:id/video"
+description: "Searches YouTube Data API for a music video matching the album title and artist from a Discogs release. Returns a single YouTube video ID."
+---
+
+Find a YouTube video associated with a vinyl release. The server resolves the album title and artist name from the Discogs release (reusing the Redis cache from `GET /disco/:id` when available), then queries the **YouTube Data API v3** for the top video result using the search query `{title} {artist} album`.
+
+Only a `youtube_id` string is returned — embed or link construction is left to the client. Results are cached in Redis under `video:{id}` for **7 days**.
+
+<Tip>
+  Embed the returned video in your frontend using a standard YouTube iframe:
+
+  ```html
+  <iframe
+    width="560"
+    height="315"
+    src="https://www.youtube.com/embed/{youtube_id}"
+    title="YouTube video player"
+    frameborder="0"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+    allowfullscreen
+  ></iframe>
+  ```
+
+  Replace `{youtube_id}` with the value returned by this endpoint.
+</Tip>
+
+## Endpoint
+
+| Property       | Value                 |
+| -------------- | --------------------- |
+| **Method**     | `GET`                 |
+| **Path**       | `/disco/:id/video`    |
+| **Auth**       | None                  |
+| **Cache TTL**  | 7 days                |
+
+## Request Parameters
+
+<ParamField path="id" type="string" required>
+  The Discogs release ID. Used to resolve the album title and artist before
+  searching YouTube. Example: `9579406`.
+</ParamField>
+
+## Response Fields
+
+<ResponseField name="youtube_id" type="string" required>
+  The YouTube video ID of the top search result for the album and artist.
+  This is the 11-character identifier found in YouTube URLs after `?v=`
+  (e.g., `dQw4w9WgXcQ`).
+
+  Construct a watch link as: `https://www.youtube.com/watch?v={youtube_id}`
+
+  Construct an embed URL as: `https://www.youtube.com/embed/{youtube_id}`
+</ResponseField>
+
+## Example Request
+
+```bash
+curl https://api.vinylvibes.example.com/disco/9579406/video
+```
+
+## Example Response
+
+```json
+{
+  "youtube_id": "HW-KSMxtvSA"
+}
+```
+
+## YouTube Search Strategy
+
+The YouTube Data API v3 `search.list` method is called with:
+
+| Parameter     | Value                                  |
+| ------------- | -------------------------------------- |
+| `part`        | `snippet`                              |
+| `q`           | `{titulo} {artista} album`             |
+| `type`        | `video`                                |
+| `maxResults`  | `1`                                    |
+
+The `videoId` of the first result is returned. If the YouTube API returns an error object (e.g., quota exceeded) or the `items` array is empty, the endpoint responds with `404`.
+
+<Note>
+  The YouTube Data API has a daily quota limit. If the quota is exceeded,
+  YouTube returns an error object in the response body. This is surfaced to
+  the client as a `404` with the message `"No se encontró video para este disco."`.
+  Cached results are unaffected — only uncached requests consume quota.
+</Note>
+
+## Error Responses
+
+| Status | Error message                                  | Cause                                                                               |
+| ------ | ---------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `404`  | `"Disco no encontrado."`                       | Discogs returned a non-OK response when resolving the release by ID.                |
+| `404`  | `"No se encontró video para este disco."`      | YouTube returned no results, an empty `items` array, or an API quota/error object.  |
+| `500`  | `"Error al obtener el video."`                 | Network failure or unexpected server exception.                                     |

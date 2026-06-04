@@ -1,0 +1,139 @@
+---
+title: "GET /disco/:id — Get Full Details for a Vinyl Release"
+sidebarTitle: "GET /disco/:id"
+description: "Fetch complete details for a Discogs release, including full tracklist, label, country of pressing, pricing, and community popularity stats."
+---
+
+Fetch the complete metadata for a single vinyl release from Discogs. Unlike the search and browse endpoints, this response includes the **full tracklist**, label information, country of pressing, and community popularity statistics fetched from a separate Discogs stats call. Pricing is computed on the server from the release year and the community `have`/`want` ratio.
+
+The response is cached in Redis under `disco:{id}` for **7 days**. This long TTL is intentional — Discogs release metadata rarely changes after initial entry. The cached record is also reused internally by the `/historia`, `/video`, and `/recomendaciones` sub-endpoints to avoid redundant upstream fetches.
+
+## Endpoint
+
+| Property       | Value               |
+| -------------- | ------------------- |
+| **Method**     | `GET`               |
+| **Path**       | `/disco/:id`        |
+| **Auth**       | None                |
+| **Cache TTL**  | 7 days              |
+
+## Request Parameters
+
+<ParamField path="id" type="string" required>
+  The Discogs release ID. This is the numeric ID found in Discogs release URLs
+  (e.g., for `https://www.discogs.com/release/9579406`, the ID is `9579406`).
+</ParamField>
+
+## Response Fields
+
+<ResponseField name="discogs_id" type="string" required>
+  The Discogs release ID, cast to a string.
+</ResponseField>
+
+<ResponseField name="titulo" type="string" required>
+  The release title as listed on Discogs.
+</ResponseField>
+
+<ResponseField name="artista" type="string | null" required>
+  Comma-separated list of artists. Discogs disambiguation suffixes like `(2)` or
+  `(3)` are stripped from each name before joining. `null` if no artists are listed.
+</ResponseField>
+
+<ResponseField name="anio" type="integer | null" required>
+  Release year as a four-digit integer, or `null` if not listed on Discogs.
+</ResponseField>
+
+<ResponseField name="genero" type="string | null" required>
+  Primary genre from the release's genre list, or `null`.
+</ResponseField>
+
+<ResponseField name="estilo" type="string | null" required>
+  Primary style from the release's style list, or `null`.
+</ResponseField>
+
+<ResponseField name="imagen_url" type="string | null" required>
+  URL of the primary cover image (`images[0].uri`) from Discogs, or `null`.
+</ResponseField>
+
+<ResponseField name="tracklist" type="array" required>
+  Ordered list of tracks on the release.
+
+  <Expandable title="tracklist[n] — track object">
+    <ResponseField name="posicion" type="string">
+      Track position on the record (e.g., `"A1"`, `"B3"`, `"1"`, `"2"`).
+    </ResponseField>
+    <ResponseField name="titulo" type="string">
+      Track title.
+    </ResponseField>
+    <ResponseField name="duracion" type="string">
+      Track duration as a formatted string (e.g., `"4:20"`). May be an empty
+      string `""` if Discogs does not have duration data for that track.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="precio" type="number" required>
+  Computed retail price in USD, derived from the release year and community
+  `want`/`have` ratio. Rounded to two decimal places.
+</ResponseField>
+
+<ResponseField name="have" type="integer" required>
+  Number of Discogs community members who have this release in their collection,
+  fetched from the Discogs `/releases/{id}/stats` endpoint.
+</ResponseField>
+
+<ResponseField name="want" type="integer" required>
+  Number of Discogs community members who want this release.
+</ResponseField>
+
+<ResponseField name="sello" type="string | null" required>
+  Name of the primary record label (`labels[0].name`), or `null`.
+</ResponseField>
+
+<ResponseField name="pais" type="string | null" required>
+  Country of pressing as listed on Discogs (e.g., `"US"`, `"UK"`), or `null`.
+</ResponseField>
+
+## Example Request
+
+```bash
+curl https://api.vinylvibes.example.com/disco/9579406
+```
+
+## Example Response
+
+```json
+{
+  "discogs_id": "9579406",
+  "titulo": "The Dark Side Of The Moon",
+  "artista": "Pink Floyd",
+  "anio": 1973,
+  "genero": "Rock",
+  "estilo": "Prog Rock",
+  "imagen_url": "https://i.discogs.com/dark-side-cover.jpg",
+  "tracklist": [
+    { "posicion": "A1", "titulo": "Speak To Me",         "duracion": "1:30" },
+    { "posicion": "A2", "titulo": "Breathe (In The Air)", "duracion": "2:43" },
+    { "posicion": "A3", "titulo": "On The Run",           "duracion": "3:30" },
+    { "posicion": "A4", "titulo": "Time",                 "duracion": "7:01" },
+    { "posicion": "A5", "titulo": "The Great Gig In The Sky", "duracion": "4:47" },
+    { "posicion": "B1", "titulo": "Money",                "duracion": "6:30" },
+    { "posicion": "B2", "titulo": "Us And Them",          "duracion": "7:48" },
+    { "posicion": "B3", "titulo": "Any Colour You Like",  "duracion": "3:26" },
+    { "posicion": "B4", "titulo": "Brain Damage",         "duracion": "3:46" },
+    { "posicion": "B5", "titulo": "Eclipse",              "duracion": "2:03" }
+  ],
+  "precio": 34.99,
+  "have": 142500,
+  "want": 61200,
+  "sello": "Harvest",
+  "pais": "UK"
+}
+```
+
+## Error Responses
+
+| Status | Error message                          | Cause                                                        |
+| ------ | -------------------------------------- | ------------------------------------------------------------ |
+| `404`  | `"Disco no encontrado en Discogs."`    | The Discogs API returned a non-OK response for this ID.      |
+| `500`  | `"Error al obtener el disco."`         | Network failure, Discogs API error, or unexpected exception. |

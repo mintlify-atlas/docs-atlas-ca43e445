@@ -1,0 +1,68 @@
+---
+title: "VinylVibes API: REST Backend for Vinyl Record Stores"
+sidebarTitle: "Introduction"
+description: "VinylVibes API is a Node.js/Express backend powering catalog browsing, JWT auth, server-side pricing, Redis caching, and admin tools for a vinyl store."
+---
+
+VinylVibes API is a production-ready REST backend for an online vinyl record store, built on **Node.js** and **Express** with **Prisma** as the ORM, **PostgreSQL** (hosted on Neon) as the primary database, and **Redis** for response caching. It integrates with three external services — **Discogs** for catalog data and popularity stats, **Last.fm** for album history and similar-artist recommendations, and **YouTube Data API v3** for album video lookup — and exposes endpoints for browsing records, user authentication, order processing, and admin management.
+
+## Tech stack
+
+| Technology | Role |
+|---|---|
+| Node.js + Express | HTTP server and all route handlers |
+| Prisma | ORM — type-safe queries against PostgreSQL |
+| PostgreSQL (Neon) | Persistent storage for users, orders, and browsing history |
+| Redis (ioredis) | Response cache to avoid exhausting external API rate limits |
+| JWT + bcrypt | Authentication — token signing and password hashing |
+| express-rate-limit | Global and per-route abuse protection |
+| Discogs API | Vinyl catalog search, release details, and community popularity stats |
+| Last.fm API | Album history (wiki) and similar-artist recommendations |
+| YouTube Data API v3 | Album video lookup |
+
+## Architecture at a glance
+
+Every incoming HTTP request passes through a layered pipeline before a response is returned:
+
+1. **Rate limiter** — globally capped at 100 requests per minute; auth routes are further capped at 10 attempts per 15 minutes.
+2. **CORS** — only origins listed in `CORS_ORIGIN` are allowed (comma-separated list).
+3. **Auth middleware** (`verificarToken` / `soloAdmin`) — validates the `Authorization: Bearer` header and attaches the decoded `{id, nombre, rol}` payload to the request where required.
+4. **Endpoint handler** — validates the request body/params, then checks the Redis cache for a stored result.
+5. **Redis cache check** — on a cache hit the cached JSON is returned immediately; on a miss the handler calls Discogs, Last.fm, or YouTube and writes the result to Redis with a TTL.
+6. **Database** — orders, users, and history are always read from and written to PostgreSQL via Prisma; Discogs data is never persisted to the database.
+7. **Response** — shaped JSON is returned to the client.
+
+## Available resources
+
+<CardGroup cols={2}>
+  <Card title="Register & Login" icon="key" href="/authentication">
+    Create an account at `POST /registro` and exchange credentials for a JWT at `POST /login`.
+  </Card>
+  <Card title="Search the Catalog" icon="magnifying-glass" href="/quickstart">
+    Full-text search across the Discogs catalog at `GET /buscar?q=`. Browse by genre or fetch the latest releases.
+  </Card>
+  <Card title="Checkout" icon="cart-shopping" href="/quickstart">
+    Authenticated `POST /checkout` — submit a cart and shipping address; prices are calculated server-side from live Discogs stats.
+  </Card>
+  <Card title="Admin Tools" icon="shield-halved" href="/authentication">
+    `GET /admin/usuarios` and `GET /admin/ventas` expose user and order management for `admin` and `demo` roles.
+  </Card>
+</CardGroup>
+
+## Environment variables
+
+All seven variables below must be present at startup. The server is configured to read them from a `.env` file locally or from the Render environment panel in production.
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string (e.g. a Neon connection string) |
+| `JWT_SECRET` | Long random secret used to sign and verify JWT tokens |
+| `CORS_ORIGIN` | Comma-separated list of allowed origins (e.g. `https://myapp.github.io,https://staging.example.com`) |
+| `REDIS_URL` | Redis connection URL (e.g. `redis://red-...` on Render, or `redis://localhost:6379` locally) |
+| `DISCOGS_TOKEN` | Personal access token from your Discogs developer account |
+| `YOUTUBE_API_KEY` | API key from the Google Cloud Console with YouTube Data API v3 enabled |
+| `LASTFM_API_KEY` | API key from your Last.fm account |
+
+<Note>
+  The server **refuses to start** if `JWT_SECRET` is not defined. You will see the error `JWT_SECRET no está definido en las variables de entorno.` and the process will exit immediately. Always set this variable before running the server.
+</Note>

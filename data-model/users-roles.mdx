@@ -1,0 +1,210 @@
+---
+title: "User Roles and Permissions in VinylVibes API"
+sidebarTitle: "Roles"
+description: "VinylVibes has four user roles: cliente, vendedor, admin, and demo. Each role controls access to endpoints and write operations."
+---
+
+VinylVibes API uses a simple **role-based access control** system stored in the `usuario.rol` column. Every JWT token issued by `POST /login` encodes the user's current role alongside their ID and username. On protected endpoints, middleware decodes the token and inspects the role before allowing the request to proceed.
+
+---
+
+## Role definitions
+
+<CardGroup cols={2}>
+  <Card title="cliente" icon="user">
+    **Default on registration.** Can browse the catalog, record browsing history, place orders via checkout, and view their own purchase history. Cannot access any admin endpoint.
+  </Card>
+  <Card title="vendedor" icon="store">
+    **Future use.** Currently has the same access level as `cliente`. This role is reserved for planned inventory-management features and has no additional permissions at present.
+  </Card>
+  <Card title="admin" icon="shield-halved">
+    **Full access.** Everything a `cliente` can do, plus all admin endpoints: user listing and deletion, role assignment, sales listing and status management, and Redis diagnostics.
+  </Card>
+  <Card title="demo" icon="eye">
+    **Read-only admin.** May access `GET` admin endpoints and the Redis diagnostic endpoint, but is blocked from all write or mutating operations with a `403 Solo lectura` response.
+  </Card>
+</CardGroup>
+
+### Full capability matrix
+
+| Capability | `cliente` | `vendedor` | `admin` | `demo` |
+|---|:---:|:---:|:---:|:---:|
+| Browse catalog (search, recent, genre) | ✅ | ✅ | ✅ | ✅ |
+| View record detail, history, video | ✅ | ✅ | ✅ | ✅ |
+| Record browsing history (`POST /historial`) | ✅ | ✅ | ✅ | ✅ |
+| View own browsing history (`GET /historial`) | ✅ | ✅ | ✅ | ✅ |
+| Place an order (`POST /checkout`) | ✅ | ✅ | ✅ | ✅ |
+| View own purchases (`GET /mis-compras`) | ✅ | ✅ | ✅ | ✅ |
+| List all users (`GET /admin/usuarios`) | ❌ | ❌ | ✅ | ✅ |
+| List all sales (`GET /admin/ventas`) | ❌ | ❌ | ✅ | ✅ |
+| View sale detail (`GET /admin/ventas/:id`) | ❌ | ❌ | ✅ | ✅ |
+| Redis diagnostic (`GET /redis-ping`) | ❌ | ❌ | ✅ | ✅ |
+| Change a user's role (`PUT /admin/usuarios/:id/rol`) | ❌ | ❌ | ✅ | ❌ |
+| Delete a user (`DELETE /admin/usuarios/:id`) | ❌ | ❌ | ✅ | ❌ |
+| Change order status (`PUT /admin/ventas/:id/estado`) | ❌ | ❌ | ✅ | ❌ |
+
+---
+
+## How roles are set
+
+### On registration
+
+New accounts always receive the `cliente` role. This is **hardcoded** in the `POST /registro` handler — the request body has no role field, and the value is never derived from client input:
+
+```js
+await prisma.usuario.create({
+  data: {
+    nombre:     nombre_usuario.trim(),
+    correo:     correoPlaceholder,
+    contrasena: hash,
+    rol:        'cliente',   // always hardcoded
+  },
+});
+```
+
+There is no self-promotion path. A user cannot elevate their own role through any API call.
+
+### Changing a role (admin only)
+
+An `admin` account can update any other user's role via:
+
+```
+PUT /admin/usuarios/:id/rol
+Authorization: Bearer <admin-token>
+
+{ "rol": "vendedor" }
+```
+
+The endpoint validates the supplied value against an explicit allowlist:
+
+```js
+if (!['cliente', 'vendedor', 'admin'].includes(rol))
+  return res.status(400).json({ error: 'Rol inválido.' });
+```
+
+<Warning>
+  The `demo` role is **not in the allowlist** and cannot be set through the API. Assigning `demo` to a user requires a direct database update (e.g. via `psql` or the Neon dashboard). This is by design — `demo` is a special operational role, not a normal user tier.
+</Warning>
+
+---
+
+## Middleware
+
+Three middleware functions in `index.js` implement the access control layer. They are composed as Express middleware chains on each route.
+
+### `verificarToken`
+
+Validates the `Authorization` header and attaches the decoded payload to `req.usuario`.
+
+```js
+function verificarToken(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer '))
+    return res.status(401).json({ error: 'Token de autenticación requerido.' });
+  try {
+    req.usuario = jwt.verify(auth.slice(7), JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Token inválido o expirado. Vuelve a iniciar sesión.' });
+  }
+}
+```
+
+- Expects the header in the exact format `Authorization: Bearer <token>`.
+- On success, sets `req.usuario` to the decoded JWT payload: `{ id, nombre, rol }`.
+- Returns **401** if the header is missing, malformed, or if the token is invalid or expired.
+- JWT tokens expire after **7 days** (`JWT_EXPIRY = '7d'`).
+
+---
+
+### `soloAdmin`
+
+Gates a route to users with the `admin` or `demo` role. Must be used after `verificarToken`.
+
+```js
+function soloAdmin(req, res, next) {
+  if (req.usuario?.rol !== 'admin' && req.usuario?.rol !== 'demo') {
+    return res.status(403).json({ error: 'Acceso denegado: se requieren permisos de administrador.' });
+  }
+  next();
+}
+```
+
+- Allows: `admin`, `demo`.
+- Rejects: `cliente`, `vendedor` — **403**.
+- Used on all admin read endpoints: `GET /admin/usuarios`, `GET /admin/ventas`, `GET /admin/ventas/:id`, `GET /redis-ping`.
+
+---
+
+### `soloAdminEscritura`
+
+Blocks the `demo` role from executing write operations. Must be used after both `verificarToken` and `soloAdmin`.
+
+```js
+function soloAdminEscritura(req, res, next) {
+  if (req.usuario?.rol === 'demo')
+    return res.status(403).json({ error: 'Tu cuenta es de solo lectura. No puedes realizar esta acción.' });
+  next();
+}
+```
+
+- Allows: `admin`.
+- Rejects: `demo` — **403** with the message `"Tu cuenta es de solo lectura. No puedes realizar esta acción."`.
+- Used on all admin write endpoints: `PUT /admin/usuarios/:id/rol`, `DELETE /admin/usuarios/:id`, `PUT /admin/ventas/:id/estado`.
+
+### Middleware composition example
+
+```js
+// Read — admin AND demo allowed
+app.get('/admin/ventas', verificarToken, soloAdmin, handler);
+
+// Write — admin only (demo rejected by soloAdminEscritura)
+app.put('/admin/ventas/:id/estado', verificarToken, soloAdmin, soloAdminEscritura, handler);
+```
+
+<Tip>
+  Because `soloAdminEscritura` only checks for `demo`, it always runs _after_ `soloAdmin`. By the time `soloAdminEscritura` is invoked, any non-admin, non-demo role has already been rejected by `soloAdmin`.
+</Tip>
+
+---
+
+## Endpoint access matrix
+
+The table below maps every endpoint group to the minimum role required.
+
+| Endpoint | Method | Auth required | Roles allowed |
+|---|---|---|---|
+| `/registro` | POST | None | Public |
+| `/login` | POST | None | Public |
+| `/buscar` | GET | None | Public |
+| `/recientes` | GET | None | Public |
+| `/genero/:genero` | GET | None | Public |
+| `/disco/:id` | GET | None | Public |
+| `/disco/:id/historia` | GET | None | Public |
+| `/disco/:id/video` | GET | None | Public |
+| `/disco/:id/recomendaciones` | GET | Optional | Public (personalised if token provided) |
+| `/historial` | POST | **JWT** | `cliente`, `vendedor`, `admin`, `demo` |
+| `/historial` | GET | **JWT** | `cliente`, `vendedor`, `admin`, `demo` |
+| `/checkout` | POST | **JWT** | `cliente`, `vendedor`, `admin`, `demo` |
+| `/mis-compras` | GET | **JWT** | `cliente`, `vendedor`, `admin`, `demo` |
+| `/admin/usuarios` | GET | **JWT** | `admin`, `demo` |
+| `/admin/ventas` | GET | **JWT** | `admin`, `demo` |
+| `/admin/ventas/:id` | GET | **JWT** | `admin`, `demo` |
+| `/redis-ping` | GET | **JWT** | `admin`, `demo` |
+| `/admin/usuarios/:id/rol` | PUT | **JWT** | `admin` only |
+| `/admin/usuarios/:id` | DELETE | **JWT** | `admin` only |
+| `/admin/ventas/:id/estado` | PUT | **JWT** | `admin` only |
+
+<Note>
+  `GET /disco/:id/recomendaciones` accepts a `Bearer` token but does not require one. When a valid token is present, the endpoint personalises results by boosting genres that appear in the user's browsing history. Anonymous requests receive non-personalised recommendations instead.
+</Note>
+
+### Error responses by role violation
+
+| Scenario | HTTP status | Error message |
+|---|---|---|
+| No `Authorization` header on a protected route | `401` | `"Token de autenticación requerido."` |
+| Token present but invalid or expired | `401` | `"Token inválido o expirado. Vuelve a iniciar sesión."` |
+| `cliente` or `vendedor` hitting an admin route | `403` | `"Acceso denegado: se requieren permisos de administrador."` |
+| `demo` role hitting a write admin route | `403` | `"Tu cuenta es de solo lectura. No puedes realizar esta acción."` |
+| `PUT /admin/usuarios/:id/rol` with an invalid role value | `400` | `"Rol inválido."` |

@@ -1,0 +1,128 @@
+---
+title: "GET /mis-compras — View Your Purchase History"
+sidebarTitle: "GET /mis-compras"
+description: "Returns all purchase orders for the authenticated user, including line items, totals, status, and partial shipping info, sorted newest first."
+---
+
+`GET /mis-compras` returns the full purchase history for the authenticated user, ordered from newest to oldest. Each order includes its line items (the individual vinyl records purchased), a running total, the current order status, and **partial** shipping info — only city and state are exposed here; the full street address is kept private and is only accessible to admins via `GET /admin/ventas/:id`.
+
+---
+
+## Endpoint details
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **Path** | `/mis-compras` |
+| **Auth** | JWT required (`Authorization: Bearer <token>`) |
+
+## Request params
+
+No query parameters or request body. The user is identified entirely from the JWT payload.
+
+---
+
+## Response
+
+Returns a JSON array of order objects, newest first. An empty array (`[]`) is returned if the user has not yet placed any orders.
+
+<ResponseField name="id_venta" type="integer">
+  Unique ID of the purchase order.
+</ResponseField>
+
+<ResponseField name="total" type="number">
+  Total amount charged for the order (as a JavaScript number, e.g. `29.99`).
+</ResponseField>
+
+<ResponseField name="estado" type="string">
+  Current order status. One of: `pendiente`, `pagada`, `enviada`, `entregada`, `cancelada`.
+</ResponseField>
+
+<ResponseField name="fecha" type="string">
+  ISO 8601 datetime when the order was created (e.g. `"2024-11-03T20:15:00.000Z"`).
+</ResponseField>
+
+<ResponseField name="ciudad" type="string | null">
+  City from the shipping address. `null` if no shipping record is associated with the order.
+</ResponseField>
+
+<ResponseField name="discos" type="array">
+  Line items — the individual vinyl records included in this order.
+
+  <Expandable title="Disco (line item) object">
+    <ResponseField name="discogs_id" type="string">
+      Discogs release ID of the purchased record.
+    </ResponseField>
+
+    <ResponseField name="titulo" type="string">
+      Title of the release at time of purchase.
+    </ResponseField>
+
+    <ResponseField name="artista" type="string">
+      Artist name at time of purchase.
+    </ResponseField>
+
+    <ResponseField name="cantidad" type="integer">
+      Number of copies purchased.
+    </ResponseField>
+
+    <ResponseField name="precio" type="number">
+      Unit price at time of purchase, as calculated server-side from Discogs stats. This is a historical snapshot — it will not change if the release's popularity later shifts.
+    </ResponseField>
+
+    <ResponseField name="subtotal" type="number">
+      `precio × cantidad` for this line item.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Example
+
+```bash
+curl https://api.vinylvibes.example/mis-compras \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**200 response**
+
+```json
+[
+  {
+    "id_venta": 42,
+    "total": 59.98,
+    "estado": "enviada",
+    "fecha": "2024-11-03T20:15:00.000Z",
+    "ciudad": "Ciudad de México",
+    "discos": [
+      {
+        "discogs_id": "249504",
+        "titulo": "The Dark Side of the Moon",
+        "artista": "Pink Floyd",
+        "cantidad": 1,
+        "precio": 29.99,
+        "subtotal": 29.99
+      },
+      {
+        "discogs_id": "870745",
+        "titulo": "Kind of Blue",
+        "artista": "Miles Davis",
+        "cantidad": 1,
+        "precio": 29.99,
+        "subtotal": 29.99
+      }
+    ]
+  }
+]
+```
+
+---
+
+## Error responses
+
+| Status | Condition | Error message |
+|--------|-----------|---------------|
+| `401` | JWT is absent or malformed | `"Token de autenticación requerido."` |
+| `401` | JWT is expired or invalid | `"Token inválido o expirado. Vuelve a iniciar sesión."` |
+| `500` | Unexpected server or database error | `"Error al obtener el historial de compras."` |

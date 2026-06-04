@@ -1,0 +1,123 @@
+---
+title: "Redis Caching Strategy in VinylVibes API"
+sidebarTitle: "Caching"
+description: "VinylVibes caches all Discogs, Last.fm, and YouTube responses in Redis with per-resource TTLs ranging from 1 hour to 7 days."
+---
+
+VinylVibes uses Redis to cache all external API responses. This protects the rate limits of three upstream services — Discogs (60 req/min), Last.fm (5 req/s), and YouTube Data API (10,000 units/day) — and significantly reduces response latency for repeat queries. Once a result is in cache, subsequent requests for the same resource return in milliseconds without touching any external API.
+
+## Cache TTL Table
+
+Each resource type has its own time-to-live (TTL), defined in the `TTL` constants object at the top of `index.js`. Longer TTLs are assigned to stable data (release details, editorial history, video IDs); shorter TTLs are assigned to data that may change more frequently (search results, recommendations).
+
+| Resource | Cache Key Pattern | TTL |
+|----------|-------------------|-----|
+| Search results | `buscar:*` | 1 hour (3,600 s) |
+| Genre results | `genero:*` | 24 hours (86,400 s) |
+| Recent releases | `recientes` | 24 hours (86,400 s) |
+| Release detail | `disco:*` | 7 days (604,800 s) |
+| Album history | `historia:*` | 7 days (604,800 s) |
+| Video | `video:*` | 7 days (604,800 s) |
+| Recommendations | `recomendaciones:*` | 1 hour (3,600 s) |
+
+```js
+// TTL del caché en segundos
+const TTL = {
+  BUSQUEDA:        60 * 60,
+  GENERO:          60 * 60 * 24,
+  RECIENTES:       60 * 60 * 24,
+  DISCO:           60 * 60 * 24 * 7,
+  HISTORIA:        60 * 60 * 24 * 7,
+  VIDEO:           60 * 60 * 24 * 7,
+  RECOMENDACIONES: 60 * 60,
+};
+```
+
+## Cache Key Patterns
+
+Keys are constructed deterministically from the request parameters so that the same logical query always maps to the same cache entry.
+
+| Endpoint | Cache Key |
+|----------|-----------|
+| `GET /buscar?q=&pagina=` | `buscar:${q.trim().toLowerCase()}:${pagina}` |
+| `GET /genero/:genero?pagina=` | `genero:${genero.toLowerCase()}:${pagina}` |
+| `GET /recientes` | `recientes` |
+| `GET /disco/:id` | `disco:${id}` |
+| `GET /disco/:id/historia` | `historia:${id}` |
+| `GET /disco/:id/video` | `video:${id}` |
+| `GET /disco/:id/recomendaciones` | `recomendaciones:${id}:${userId \| 'anonimo'}` |
+
+<Note>
+  Recommendations are cached **per user** — an authenticated user gets a key suffixed with their numeric user ID, while unauthenticated requests use the suffix `anonimo`. This means personalized and anonymous recommendation results are stored separately.
+</Note>
+
+## Cache Helper: `cachear()`
+
+All caching logic is encapsulated in the `cachear(clave, ttl, fn)` helper. Route handlers call it with a cache key, a TTL in seconds, and an async function that performs the actual external API or database work.
+
+The helper:
+1. Tries `redis.get(key)` — on a hit, parses and returns the stored JSON immediately.
+2. On a miss, calls `fn()` to fetch fresh data.
+3. If the result is non-null, stores it with `redis.setex(key, ttl, json)`.
+4. Returns the result whether it came from cache or a live fetch.
+
+```js
+/** Obtiene del caché o ejecuta fn() y guarda el resultado en Redis. */
+async function cachear(clave, ttl, fn) {
+  try {
+    const cached = await redis.get(clave);
+    if (cached) return JSON.parse(cached);
+  } catch (e) {
+    console.warn('Redis get error:', e.message);
+  }
+
+  const resultado = await fn();
+
+  try {
+    if (resultado !== null) {
+      await redis.setex(clave, ttl, JSON.stringify(resultado));
+    }
+  } catch (e) {
+    console.warn('Redis set error:', e.message);
+  }
+
+  return resultado;
+}
+```
+
+<Tip>
+  `null` results are intentionally not cached. If a Discogs release returns a 404 or a video is not found, the next request will try the external API again rather than serving a permanently cached "not found" state.
+</Tip>
+
+## Graceful Degradation
+
+Both the read and write sides of `cachear()` are wrapped in independent `try/catch` blocks. If Redis throws on a `get`, the server logs a warning and falls through to call `fn()`. If Redis throws on a `setex`, the server logs a warning and returns the fresh result anyway — it just won't be cached for next time.
+
+This means:
+- **Redis unavailable at startup** — the server still starts and serves all routes.
+- **Redis becomes unavailable mid-flight** — in-progress requests complete by calling external APIs directly.
+- **No silent data loss** — all Redis errors are logged to the console with `console.warn`.
+
+## Admin Visibility
+
+<Info>
+  Admin users can inspect the live state of the Redis cache by calling `GET /redis-ping`. The endpoint uses Redis `SCAN` (not `KEYS`) to avoid blocking the instance in production, then returns the full sorted list of cached keys and their count.
+
+  **Endpoint:** [`GET /redis-ping`](/api/admin/redis-ping)  
+  **Auth required:** Yes — `admin` or `demo` role.
+
+  Example response:
+
+  ```json
+  {
+    "estado": "conectado",
+    "keys_en_cache": 4,
+    "keys": [
+      "buscar:pink floyd:1",
+      "disco:1061236",
+      "genero:rock:1",
+      "recientes"
+    ]
+  }
+  ```
+</Info>

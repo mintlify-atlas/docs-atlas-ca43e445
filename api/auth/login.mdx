@@ -1,0 +1,160 @@
+---
+title: "POST /login — Authenticate and Receive a JWT Token"
+sidebarTitle: "POST /login"
+description: "Log in to VinylVibes with username and password. Returns a signed JWT token valid for 7 days plus user role flags."
+---
+
+`POST /login` authenticates a user and returns a signed JWT token. The token encodes the user's **ID**, **username**, and **role** and is valid for **7 days**. Once obtained, send it as `Authorization: Bearer <token>` on all protected endpoints.
+
+---
+
+## Endpoint details
+
+| Property        | Value                             |
+| --------------- | --------------------------------- |
+| **Method**      | `POST`                            |
+| **Path**        | `/login`                          |
+| **Auth**        | None required                     |
+| **Rate limit**  | 10 requests per 15 minutes        |
+| **Token expiry**| 7 days (`7d`)                     |
+
+---
+
+## Request body
+
+<ParamField body="nombre_usuario" type="string" required>
+  The username of the account to authenticate. Leading and trailing whitespace
+  is trimmed before the lookup.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The account password to verify against the stored bcrypt hash.
+</ParamField>
+
+---
+
+## Example request
+
+```bash
+curl -X POST https://your-api-url/login \
+  -H "Content-Type: application/json" \
+  -d '{"nombre_usuario": "juan", "password": "mypassword123"}'
+```
+
+---
+
+## Responses
+
+### 200 OK
+
+Authentication succeeded. The response body contains the signed token and role
+flags for the client to store and use.
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "nombre": "juan",
+  "es_admin": false,
+  "es_demo": false
+}
+```
+
+<ResponseField name="token" type="string">
+  A signed JWT. The payload encodes `id` (the user's numeric ID), `nombre`
+  (username), and `rol` (the user's role string). Valid for **7 days** from
+  the time of issue.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  The authenticated user's username as stored in the database.
+</ResponseField>
+
+<ResponseField name="es_admin" type="boolean">
+  `true` when the user's role is `admin`; `false` otherwise.
+</ResponseField>
+
+<ResponseField name="es_demo" type="boolean">
+  `true` when the user's role is `demo`; `false` otherwise. Demo accounts have
+  read-only access to admin-scoped resources.
+</ResponseField>
+
+---
+
+### 400 Bad Request — Missing fields
+
+Returned when `nombre_usuario` (after trimming) or `password` is absent or empty.
+
+```json
+{
+  "error": "Nombre y contraseña son requeridos."
+}
+```
+
+---
+
+### 401 Unauthorized — Invalid credentials
+
+Returned when the username does not exist **or** when the password does not match the stored hash. Both cases return the same message to prevent username enumeration.
+
+```json
+{
+  "error": "Credenciales inválidas."
+}
+```
+
+---
+
+### 429 Too Many Requests — Rate limit exceeded
+
+Returned when the caller has sent more than 10 login requests within a 15-minute window.
+
+```json
+{
+  "error": "Demasiados intentos. Intenta de nuevo en 15 minutos."
+}
+```
+
+---
+
+### 500 Internal Server Error
+
+Returned when an unexpected server-side error occurs.
+
+```json
+{
+  "error": "Error en el servidor."
+}
+```
+
+---
+
+## Using the token
+
+Store the token from the login response and pass it as a `Bearer` token on subsequent requests to protected endpoints.
+
+```bash
+# 1. Log in and capture the token
+TOKEN=$(curl -s -X POST https://your-api-url/login \
+  -H 'Content-Type: application/json' \
+  -d '{"nombre_usuario":"juan","password":"mypassword123"}' | jq -r .token)
+
+# 2. Use the token to access a protected endpoint
+curl -H "Authorization: Bearer $TOKEN" https://your-api-url/historial
+```
+
+<Tip>
+  Store the token in a secure location (e.g., an `httpOnly` cookie or
+  device-level secure storage) and discard it after the 7-day expiry window.
+  There is no token-refresh endpoint — users must log in again once the token
+  expires.
+</Tip>
+
+---
+
+<Info>
+  Even when a username does not exist in the database, the login endpoint
+  performs a **constant-time bcrypt comparison** against a dummy hash before
+  returning the 401 response. This ensures that the response time is
+  indistinguishable from a real failed-password attempt, preventing
+  timing-based user enumeration attacks.
+</Info>

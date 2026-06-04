@@ -1,0 +1,96 @@
+---
+title: "GET /redis-ping — Redis Diagnostics for Admins"
+sidebarTitle: "GET /redis-ping"
+description: "Checks Redis connectivity and returns the count and list of all currently cached keys. Available to admin and demo roles only."
+---
+
+`GET /redis-ping` is an administrative diagnostic endpoint that verifies the Redis connection and lists all keys currently stored in the cache. It uses `SCAN` (non-blocking) instead of `KEYS` to safely inspect the keyspace in production, iterating through the store in batches without stalling other requests.
+
+---
+
+## Endpoint details
+
+| Property   | Value                              |
+| ---------- | ---------------------------------- |
+| **Method** | `GET`                              |
+| **Path**   | `/redis-ping`                      |
+| **Auth**   | JWT — `admin` or `demo` role       |
+
+## Request parameters
+
+No query parameters or request body required.
+
+## Response
+
+<ResponseField name="estado" type="string">
+  Connection health indicator. `"conectado"` if Redis responds to `PING` with `PONG`; `"error"` otherwise.
+</ResponseField>
+
+<ResponseField name="keys_en_cache" type="integer">
+  Total number of keys currently present in Redis across all namespaces.
+</ResponseField>
+
+<ResponseField name="keys" type="array of strings">
+  Alphabetically sorted list of every key found during the `SCAN` traversal.
+</ResponseField>
+
+### Example response
+
+```json
+{
+  "estado": "conectado",
+  "keys_en_cache": 7,
+  "keys": [
+    "buscar:pink floyd:1",
+    "buscar:radiohead:1",
+    "disco:1234567",
+    "disco:7654321",
+    "genero:rock:1",
+    "recomendaciones:1234567:anonimo",
+    "recientes"
+  ]
+}
+```
+
+## Example request
+
+```bash
+curl -X GET https://api.vinylvibes.example/redis-ping \
+  -H "Authorization: Bearer <admin_token>"
+```
+
+## Cache key patterns
+
+VinylVibes uses a consistent naming scheme for Redis keys so each resource namespace is easy to identify at a glance:
+
+| Pattern                              | Source endpoint                    | TTL          |
+| ------------------------------------ | ---------------------------------- | ------------ |
+| `buscar:<query>:<page>`              | `GET /buscar`                      | 1 hour       |
+| `genero:<genre>:<page>`              | `GET /genero/:genero`              | 24 hours     |
+| `recientes`                          | `GET /recientes`                   | 24 hours     |
+| `disco:<discogs_id>`                 | `GET /disco/:id`                   | 7 days       |
+| `historia:<discogs_id>`              | `GET /disco/:id/historia`          | 7 days       |
+| `video:<discogs_id>`                 | `GET /disco/:id/video`             | 7 days       |
+| `recomendaciones:<id>:<user_or_anonimo>` | `GET /disco/:id/recomendaciones` | 1 hour     |
+
+For full TTL values and cache invalidation behaviour, see [Caching](/concepts/caching).
+
+## Error response
+
+If Redis is unreachable or throws during the `SCAN` loop, the endpoint returns HTTP `500`:
+
+```json
+{
+  "estado": "error",
+  "mensaje": "connect ECONNREFUSED 127.0.0.1:6379"
+}
+```
+
+| Field     | Type   | Description                                      |
+| --------- | ------ | ------------------------------------------------ |
+| `estado`  | string | Always `"error"` on failure.                     |
+| `mensaje` | string | The underlying error message from the exception. |
+
+<Note>
+  The endpoint uses Redis `SCAN` in batches of 100 keys (`COUNT 100`) rather than the blocking `KEYS *` command, making it safe to call against production instances with large keystores without risking server latency spikes.
+</Note>

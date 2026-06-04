@@ -1,0 +1,92 @@
+---
+title: "Rate Limiting in VinylVibes API"
+sidebarTitle: "Rate Limiting"
+description: "VinylVibes enforces a 100 req/min global limit and a stricter 10 req/15 min limit on auth endpoints to prevent abuse."
+---
+
+VinylVibes uses `express-rate-limit` to enforce two tiers of rate limiting — global and auth-specific — and returns standard `RateLimit-*` headers on every response. The middleware runs early in the Express stack, before route handlers, so rate-limited requests are rejected without touching the database or external APIs.
+
+## Rate Limit Tiers
+
+<CardGroup cols={2}>
+  <Card title="Global Limit" icon="globe">
+    Applies to **all routes**. Allows up to **100 requests per minute** per IP address. Exceeding the limit returns HTTP 429.
+  </Card>
+  <Card title="Auth Limit" icon="lock">
+    Applies to `POST /registro` and `POST /login` only. Allows up to **10 requests per 15 minutes** per IP address. This stricter limit protects against brute-force and credential-stuffing attacks.
+  </Card>
+</CardGroup>
+
+| Scope | Routes | Window | Max Requests | Response on Exceed |
+|-------|--------|--------|--------------|-------------------|
+| Global | All routes | 1 minute | 100 | HTTP 429 |
+| Auth | `POST /registro`, `POST /login` | 15 minutes | 10 | HTTP 429 |
+
+## Response Headers
+
+Both limiters are configured with `standardHeaders: true` and `legacyHeaders: false`. This means every API response includes the modern `RateLimit-*` header set defined by the IETF draft standard:
+
+```
+RateLimit-Limit: 100
+RateLimit-Remaining: 87
+RateLimit-Reset: 42
+```
+
+The deprecated `X-RateLimit-*` headers are **not** sent. Clients should read `RateLimit-Remaining` to track how many requests remain in the current window and `RateLimit-Reset` (seconds until window resets) to know when to retry.
+
+## Error Responses
+
+When a client exceeds a rate limit, the API returns HTTP `429 Too Many Requests` with a JSON body. The error message is determined by which limiter fired:
+
+**Global limiter (all routes):**
+
+```json
+{
+  "error": "Demasiadas peticiones. Intenta de nuevo en un minuto."
+}
+```
+
+**Auth limiter (`/registro`, `/login`):**
+
+```json
+{
+  "error": "Demasiados intentos. Intenta de nuevo en 15 minutos."
+}
+```
+
+These messages are defined directly in the `express-rate-limit` configuration in `index.js`:
+
+```js
+// Global rate limiter — applied to all routes
+app.use(rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max:      100,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message: { error: 'Demasiadas peticiones. Intenta de nuevo en un minuto.' },
+}));
+
+// Auth rate limiter — applied only to /registro and /login
+const limitarAuth = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max:      10,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message: { error: 'Demasiados intentos. Intenta de nuevo en 15 minutos.' },
+});
+```
+
+## Best Practices for Clients
+
+<Tip>
+  Follow these practices to stay well within rate limits and build a resilient integration:
+
+  - **Cache JWT tokens client-side.** Tokens are valid for 7 days (`JWT_EXPIRY = '7d'`). There is no need to call `POST /login` on every session — store the token in `localStorage` or a secure cookie and reuse it until expiry.
+  - **Prefer cached endpoints for repeated lookups.** Release detail (`/disco/:id`) is cached for 7 days, and genre pages (`/genero/:genero`) for 24 hours. Repeated calls to these endpoints consume virtually no external API quota.
+  - **Implement exponential backoff on HTTP 429.** If you receive a 429, read `RateLimit-Reset` to determine how long to wait, then retry with increasing delays: 1 s → 2 s → 4 s → 8 s. Do not retry immediately in a tight loop.
+  - **Avoid polling.** The API does not support webhooks; if your client needs fresh data, poll no more often than your use case requires and respect the `RateLimit-Remaining` header.
+</Tip>
+
+<Note>
+  Rate limits are enforced **per IP address**. If your application routes all traffic through a shared egress IP (e.g. a single backend proxy calling VinylVibes on behalf of multiple users), the entire proxy shares one rate limit bucket. In that case, implement your own per-user throttling layer before hitting the VinylVibes API.
+</Note>

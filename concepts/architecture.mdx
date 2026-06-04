@@ -1,0 +1,94 @@
+---
+title: "VinylVibes API Architecture and Infrastructure"
+sidebarTitle: "Architecture"
+description: "How VinylVibes API is structured: Express middleware stack, PostgreSQL via Prisma, Redis caching, and three external API integrations."
+---
+
+VinylVibes API is a single-file Express server (`index.js`) that handles routing, middleware, database access, and external API calls. Every concern — from rate limiting and authentication to Discogs lookups and Redis caching — lives in one cohesive file, making it straightforward to trace a request from entry to response.
+
+## Request Lifecycle
+
+Every incoming HTTP request passes through the same ordered chain before a response is sent.
+
+<Steps>
+  <Step title="Global Rate Limiter">
+    `express-rate-limit` checks the caller's IP against the global window (100 requests per minute). Requests that exceed the limit receive an immediate HTTP 429 response and go no further.
+  </Step>
+  <Step title="CORS">
+    The CORS middleware validates the request `Origin` against the comma-separated list in `CORS_ORIGIN`. If the list is empty, all origins are allowed. Invalid origins are rejected before the route handler runs.
+  </Step>
+  <Step title="JSON Body Parser">
+    `express.json()` deserializes the request body so route handlers receive plain JavaScript objects.
+  </Step>
+  <Step title="Route Handler">
+    Express matches the request path and HTTP method to the appropriate handler. Auth-protected routes also run `verificarToken` (and optionally `soloAdmin`) before proceeding.
+  </Step>
+  <Step title="Redis Cache Check">
+    The `cachear()` helper calls `redis.get(key)`. On a cache hit the stored JSON is parsed and returned immediately — no external API call is made.
+  </Step>
+  <Step title="External API / Database Call">
+    On a cache miss the handler fetches data from Discogs, Last.fm, or YouTube (catalog/history/video routes) or queries PostgreSQL via Prisma (auth, historial, checkout).
+  </Step>
+  <Step title="Redis Cache Set">
+    If the result is non-null, `cachear()` stores it in Redis with `setex` using the per-resource TTL. Subsequent requests within the TTL window are served from cache.
+  </Step>
+  <Step title="JSON Response">
+    The handler calls `res.json()` with the final payload. Standard `RateLimit-*` headers are included on every response.
+  </Step>
+</Steps>
+
+## External API Integrations
+
+VinylVibes calls three external APIs to power its catalog, editorial, and media features.
+
+| API | Used For | Approximate Rate Limit |
+|-----|----------|----------------------|
+| **Discogs** | Vinyl search, release details, community `have`/`want` stats for pricing | 60 requests / minute (authenticated) |
+| **Last.fm** | Album wiki history (`/disco/:id/historia`), similar artists for recommendations | 5 requests / second |
+| **YouTube Data API v3** | Album video lookup (`/disco/:id/video`) | 10,000 units / day |
+
+Redis caching is the primary mechanism for staying well within these limits — see [Caching](/concepts/caching) for TTL details.
+
+## Infrastructure
+
+VinylVibes is deployed across three hosted services:
+
+<CardGroup cols={3}>
+  <Card title="Node.js / Express" icon="server">
+    The API server runs on **Render**. The entry point is `index.js`; the server binds to `process.env.PORT` (defaulting to `3000`).
+  </Card>
+  <Card title="PostgreSQL on Neon" icon="database">
+    Relational data (users, orders, shipping, browsing history) is stored in a **Neon** serverless PostgreSQL database and accessed through **Prisma ORM**.
+  </Card>
+  <Card title="Redis on Render" icon="bolt">
+    An in-memory **Redis** instance on Render is used exclusively as a response cache. The client is `ioredis`, configured via `REDIS_URL`.
+  </Card>
+</CardGroup>
+
+The `BASE_URL` pattern for the deployed API follows Render's default service URL format:
+
+```
+https://<service-name>.onrender.com
+```
+
+## Environment Variables
+
+All configuration is supplied through environment variables. Set these in **Render → Environment** for production, or in a `.env` file for local development.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | **Required** | PostgreSQL connection string for the Neon database (e.g. `postgresql://...@neon.tech/neondb`). |
+| `JWT_SECRET` | **Required** | Secret key used to sign and verify JWT tokens. The server throws an error and **refuses to start** if this variable is missing. |
+| `CORS_ORIGIN` | Optional | Comma-separated list of allowed request origins (e.g. `https://example.github.io,https://app.example.com`). If empty or unset, **all origins are permitted**. |
+| `REDIS_URL` | Optional | ioredis connection URL. Defaults to `redis://localhost:6379` if not set. |
+| `DISCOGS_TOKEN` | Required for catalog | Discogs API personal access token. Required by all `/buscar`, `/recientes`, `/genero`, and `/disco` endpoints. |
+| `YOUTUBE_API_KEY` | Required for video | YouTube Data API v3 key. Required by `GET /disco/:id/video`. |
+| `LASTFM_API_KEY` | Required for history/recs | Last.fm API key. Required by `GET /disco/:id/historia` and `GET /disco/:id/recomendaciones`. |
+
+## Graceful Redis Degradation
+
+<Note>
+  Redis connectivity is **optional at runtime**. If the Redis instance is unavailable or throws an error, `cachear()` catches the exception, logs a warning to the console, and falls through to the external API or database call. The request completes successfully — just without the caching benefit.
+
+  This means that if Redis goes down in production, the API keeps serving traffic, but Discogs, Last.fm, and YouTube are called on every request. Monitor your external API usage closely during Redis outages to avoid hitting rate limits.
+</Note>

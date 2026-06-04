@@ -1,0 +1,132 @@
+---
+title: "POST /registro — Create a New User Account"
+sidebarTitle: "POST /registro"
+description: "Register a new VinylVibes user. Requires a unique username and a password of at least 6 characters. Returns 201 on success."
+---
+
+`POST /registro` creates a new user account with the `cliente` role. Usernames must be unique across the system; the provided value is trimmed of surrounding whitespace before any lookup or storage. Passwords are hashed with **bcrypt at 10 rounds** before being written to the database — the plaintext password is never persisted.
+
+---
+
+## Endpoint details
+
+| Property        | Value                             |
+| --------------- | --------------------------------- |
+| **Method**      | `POST`                            |
+| **Path**        | `/registro`                       |
+| **Auth**        | None required                     |
+| **Rate limit**  | 10 requests per 15 minutes        |
+
+---
+
+## Request body
+
+<ParamField body="nombre_usuario" type="string" required>
+  The desired username. Must be unique across the system. Leading and trailing
+  whitespace is trimmed automatically before validation and storage.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The account password. Must be at least **6 characters** long. Stored as a
+  bcrypt hash (10 rounds) — never in plaintext.
+</ParamField>
+
+---
+
+## Example request
+
+```bash
+curl -X POST https://your-api-url/registro \
+  -H "Content-Type: application/json" \
+  -d '{"nombre_usuario": "juan", "password": "mypassword123"}'
+```
+
+---
+
+## Responses
+
+### 201 Created
+
+The account was created successfully. The new user is assigned the `cliente` role by default.
+
+```json
+{
+  "mensaje": "Usuario creado exitosamente."
+}
+```
+
+<ResponseField name="mensaje" type="string">
+  A human-readable confirmation message. Value is always
+  `"Usuario creado exitosamente."` on success.
+</ResponseField>
+
+---
+
+### 400 Bad Request — Missing fields
+
+Returned when `nombre_usuario` (after trimming) or `password` is absent or empty.
+
+```json
+{
+  "error": "Nombre de usuario y contraseña son requeridos."
+}
+```
+
+---
+
+### 400 Bad Request — Password too short
+
+Returned when the supplied password is fewer than 6 characters.
+
+```json
+{
+  "error": "La contraseña debe tener al menos 6 caracteres."
+}
+```
+
+---
+
+### 409 Conflict — Username already taken
+
+Returned when another account already exists with the same (trimmed) username.
+
+```json
+{
+  "error": "El nombre de usuario ya está en uso."
+}
+```
+
+---
+
+### 429 Too Many Requests — Rate limit exceeded
+
+Returned when the caller has sent more than 10 registration requests within a
+15-minute window.
+
+```json
+{
+  "error": "Demasiados intentos. Intenta de nuevo en 15 minutos."
+}
+```
+
+---
+
+### 500 Internal Server Error
+
+Returned when an unexpected server-side error occurs (e.g., a database
+connectivity failure).
+
+```json
+{
+  "error": "Error al crear la cuenta."
+}
+```
+
+---
+
+<Note>
+  A placeholder email address in the format `{username}@vinylvibes.local` is
+  generated and stored internally (e.g., `juan@vinylvibes.local`). The API does
+  **not** require or accept a real email address during registration, and this
+  placeholder is never exposed in any response.
+</Note>

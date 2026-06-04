@@ -1,0 +1,129 @@
+---
+title: "GET /buscar — Search the Vinyl Catalog via Discogs"
+sidebarTitle: "GET /buscar"
+description: "Search the Discogs database for vinyl releases. Returns paginated results including pricing, community popularity stats, and cover art URLs."
+---
+
+Search the Discogs database for vinyl releases by any keyword — artist name, album title, label, or catalogue number. Results are paginated at 20 items per page and include computed pricing based on the release year and community popularity (the `have`/`want` ratio). Each response page is cached in Redis for **1 hour** using the key `buscar:{query}:{page}`, so repeated searches with the same terms and page number are served instantly.
+
+## Endpoint
+
+| Property       | Value                       |
+| -------------- | --------------------------- |
+| **Method**     | `GET`                       |
+| **Path**       | `/buscar`                   |
+| **Auth**       | None                        |
+| **Cache TTL**  | 1 hour per (query, page)    |
+
+## Request Parameters
+
+<ParamField query="q" type="string" required>
+  The search query string. Matched against release titles, artist names, labels,
+  and catalogue numbers in the Discogs database. Must be a non-empty string after
+  trimming whitespace.
+</ParamField>
+
+<ParamField query="pagina" type="integer" default={1}>
+  Page number to retrieve. Each page contains up to 20 results. Starts at `1`.
+</ParamField>
+
+## Response Fields
+
+<ResponseField name="resultados" type="array" required>
+  Array of release objects matching the search query on the current page.
+
+  <Expandable title="resultados[n] — release object">
+    <ResponseField name="discogs_id" type="string">
+      The Discogs release ID, cast to a string (e.g., `"1234567"`).
+    </ResponseField>
+    <ResponseField name="titulo" type="string">
+      Album or release title. If the raw Discogs title contains ` - ` (artist separator),
+      only the portion after the separator is returned here.
+    </ResponseField>
+    <ResponseField name="artista" type="string | null">
+      Artist name extracted from the Discogs title. Numeric disambiguation suffixes
+      such as `(2)` or `(3)` are automatically stripped. `null` when no artist
+      separator is present in the raw title.
+    </ResponseField>
+    <ResponseField name="anio" type="integer | null">
+      Release year as a four-digit integer, or `null` if not listed on Discogs.
+    </ResponseField>
+    <ResponseField name="genero" type="string | null">
+      Primary genre from Discogs (e.g., `"Rock"`, `"Jazz"`), or `null`.
+    </ResponseField>
+    <ResponseField name="estilo" type="string | null">
+      Primary style from Discogs (e.g., `"Psychedelic Rock"`, `"Bebop"`), or `null`.
+    </ResponseField>
+    <ResponseField name="imagen_url" type="string | null">
+      URL of the release cover image hosted on Discogs, or `null` if unavailable.
+    </ResponseField>
+    <ResponseField name="precio" type="number">
+      Computed retail price in USD. Calculated from the release year (base price)
+      adjusted by the community want/have ratio. Rounded to two decimal places.
+    </ResponseField>
+    <ResponseField name="have" type="integer">
+      Number of Discogs community members who have this release in their collection.
+    </ResponseField>
+    <ResponseField name="want" type="integer">
+      Number of Discogs community members who want this release.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="total" type="integer" required>
+  Total number of matching releases across all pages, as reported by Discogs.
+</ResponseField>
+
+<ResponseField name="paginas" type="integer" required>
+  Total number of pages available for this query.
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -G https://api.vinylvibes.example.com/buscar \
+  --data-urlencode "q=Dark Side of the Moon" \
+  --data-urlencode "pagina=1"
+```
+
+## Example Response
+
+```json
+{
+  "resultados": [
+    {
+      "discogs_id": "9579406",
+      "titulo": "The Dark Side Of The Moon",
+      "artista": "Pink Floyd",
+      "anio": 1973,
+      "genero": "Rock",
+      "estilo": "Prog Rock",
+      "imagen_url": "https://i.discogs.com/some-cover.jpg",
+      "precio": 34.99,
+      "have": 142500,
+      "want": 61200
+    },
+    {
+      "discogs_id": "10362353",
+      "titulo": "The Dark Side Of The Moon",
+      "artista": "Pink Floyd",
+      "anio": 2016,
+      "genero": "Rock",
+      "estilo": "Prog Rock",
+      "imagen_url": "https://i.discogs.com/another-cover.jpg",
+      "precio": 23.99,
+      "have": 8740,
+      "want": 3100
+    }
+  ],
+  "total": 487,
+  "paginas": 25
+}
+```
+
+## Error Responses
+
+| Status | Error message                      | Cause                                             |
+| ------ | ---------------------------------- | ------------------------------------------------- |
+| `400`  | `"El parámetro q es requerido."`   | `q` was missing or blank after trimming.          |
+| `500`  | `"Error al buscar en Discogs."`    | Discogs API request failed or returned an error.  |

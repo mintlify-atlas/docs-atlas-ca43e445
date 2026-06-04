@@ -1,0 +1,101 @@
+---
+title: "How VinylVibes API Calculates Record Prices"
+sidebarTitle: "Pricing"
+description: "VinylVibes calculates vinyl prices server-side from Discogs release year and want/have popularity ratio. Clients cannot supply or override prices."
+---
+
+Prices are calculated entirely server-side using the `calcularPrecio(anio, have, want)` function. Clients never supply prices — any `precio` field included in a request body is silently ignored. The backend fetches live `have` and `want` community statistics from the Discogs API, combines them with the release year, and computes the final price at request time.
+
+## Base Price by Release Year
+
+The first input to pricing is the record's release year, pulled from the Discogs release object. This determines the starting base price before any popularity adjustment is applied.
+
+| Release Year | Base Price |
+|--------------|-----------|
+| 2000 or later | $19.99 |
+| 1980 – 1999 | $29.99 |
+| 1960 – 1979 | $34.99 |
+| Before 1960 | $39.99 |
+| Unknown / missing year | $24.99 |
+
+Older pressings command a higher base price, reflecting the collector premium on vintage vinyl.
+
+## Popularity Adjustment
+
+After the base price is set, `calcularPrecio` fetches the Discogs community stats for the release — specifically `num_have` (how many users own it) and `num_want` (how many users want it). These are combined into a **want/have ratio**:
+
+```
+ratio = want / have   (0 if have === 0)
+```
+
+The ratio is then mapped to a percentage adjustment with a dollar-amount cap to prevent extreme swings on obscure releases:
+
+| Ratio | Condition | Adjustment | Cap |
+|-------|-----------|-----------|-----|
+| `>= 1.5` | Highly desired | +40% | Maximum +$15.00 |
+| `>= 0.8` | Popular | +20% | Maximum +$8.00 |
+| `<= 0.1` | Low demand | −15% | Maximum −$5.00 |
+| Between 0.1 and 0.8 | Moderate | No adjustment | — |
+
+The final price is rounded to two decimal places.
+
+## Worked Examples
+
+**Example 1 — Classic rock pressing, high demand**
+
+- Album released in **1973** → base price **$34.99**
+- Discogs stats: `have = 5,000`, `want = 8,500` → ratio = **1.7**
+- Ratio ≥ 1.5 → apply +40%, capped at +$15: `34.99 × 1.4 = 48.986`, but cap is `34.99 + 15 = 49.99`
+- `48.986 < 49.99`, so cap does not apply → **Final price: $48.99**
+
+**Example 2 — Modern reissue, moderate interest**
+
+- Album released in **2018** → base price **$19.99**
+- Discogs stats: `have = 1,200`, `want = 700` → ratio = **0.583**
+- Ratio is between 0.1 and 0.8 → **no adjustment**
+- **Final price: $19.99**
+
+**Example 3 — Rare 1950s pressing, low collectors**
+
+- Album released in **1957** → base price **$39.99**
+- Discogs stats: `have = 80`, `want = 4` → ratio = **0.05**
+- Ratio ≤ 0.1 → apply −15%, capped at −$5: `39.99 × 0.85 = 33.99`, and `39.99 − 5 = 34.99`
+- `33.99 < 34.99`, so cap applies → **Final price: $34.99**
+
+## Where Prices Appear
+
+The `precio` field is included in every response that returns record data:
+
+- `GET /buscar` — each item in the `resultados` array contains `precio`
+- `GET /genero/:genero` — each item in the `resultados` array contains `precio`
+- `GET /recientes` — each item in the array contains `precio`
+- `GET /disco/:id` — the detail object contains `precio`, alongside `have` and `want`
+
+Prices are also persisted to the `linea_venta` table at checkout time, locking in the price at the moment of purchase.
+
+## Source: `calcularPrecio` Function
+
+```js
+/** Calcula el precio del disco según popularidad y año. */
+function calcularPrecio(anio, have = 0, want = 0) {
+  // Base por año
+  let base;
+  if (!anio)             base = 24.99;
+  else if (anio >= 2000) base = 19.99;
+  else if (anio >= 1980) base = 29.99;
+  else if (anio >= 1960) base = 34.99;
+  else                   base = 39.99;
+
+  // Ajuste por popularidad (ratio want/have)
+  const ratio = have > 0 ? want / have : 0;
+  if (ratio >= 1.5)      base = Math.min(base * 1.4, base + 15); // muy deseado
+  else if (ratio >= 0.8) base = Math.min(base * 1.2, base + 8);  // bastante deseado
+  else if (ratio <= 0.1) base = Math.max(base * 0.85, base - 5); // poco deseado
+
+  return Math.round(base * 100) / 100;
+}
+```
+
+<Warning>
+  The price returned by the API is calculated at request time from **live Discogs community stats** — or from cached stats if a Redis entry exists for that release. Because `have` and `want` counts change as the Discogs community grows, the same record may return a different price in a later session. Do not rely on a previously fetched price remaining valid; always use the `precio` returned in the current API response.
+</Warning>

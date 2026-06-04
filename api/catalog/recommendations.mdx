@@ -1,0 +1,203 @@
+---
+title: "GET /disco/:id/recomendaciones — Vinyl Recommendations"
+sidebarTitle: "GET /disco/:id/recomendaciones"
+description: "Returns up to 5 recommended vinyl releases based on similar artists from Last.fm, Discogs genre matching, and the authenticated user's browsing history."
+---
+
+Returns up to **5 recommended vinyl releases** for a given Discogs release. Recommendations are scored using a three-signal algorithm: similar artists from Last.fm, same-genre releases from Discogs, and (when authenticated) a boost based on the user's own browsing history.
+
+Authentication is **optional**. Providing a valid JWT personalizes the results by boosting releases in genres the user has previously browsed. Without a token, recommendations are based purely on artist similarity and genre matching.
+
+Results are cached in Redis for **1 hour**. The cache key is scoped per release **and** per user:
+
+- **Unauthenticated:** `recomendaciones:{id}:anonimo`
+- **Authenticated:** `recomendaciones:{id}:{userId}`
+
+<Info>
+  Because authenticated and unauthenticated results use separate cache keys,
+  logging in or out will cause the next request to compute a fresh result rather
+  than returning the shared anonymous cache.
+</Info>
+
+## Endpoint
+
+| Property       | Value                              |
+| -------------- | ---------------------------------- |
+| **Method**     | `GET`                              |
+| **Path**       | `/disco/:id/recomendaciones`       |
+| **Auth**       | Optional — Bearer JWT              |
+| **Cache TTL**  | 1 hour per (release ID, user)      |
+
+## Request Parameters
+
+<ParamField path="id" type="string" required>
+  The Discogs release ID of the album you want recommendations for.
+  Example: `9579406`.
+</ParamField>
+
+## Authentication
+
+Pass a JWT obtained from `POST /login` in the `Authorization` header to receive personalized recommendations:
+
+```bash
+Authorization: Bearer <your_jwt_token>
+```
+
+If the token is absent, malformed, or expired, the request still succeeds — it is treated as anonymous and the header is silently ignored.
+
+## Response Fields
+
+The response is a **JSON array** of up to 5 release objects, sorted from highest to lowest recommendation score. Each object has the same shape as a result from [`GET /buscar`](/api/catalog/search).
+
+<ResponseField name="[n]" type="object">
+  A recommended release object.
+
+  <Expandable title="Release object fields">
+    <ResponseField name="discogs_id" type="string">
+      The Discogs release ID, cast to a string.
+    </ResponseField>
+    <ResponseField name="titulo" type="string">
+      Album or release title.
+    </ResponseField>
+    <ResponseField name="artista" type="string | null">
+      Artist name with Discogs disambiguation suffixes stripped, or `null`.
+    </ResponseField>
+    <ResponseField name="anio" type="integer | null">
+      Release year as a four-digit integer, or `null`.
+    </ResponseField>
+    <ResponseField name="genero" type="string | null">
+      Primary genre from Discogs, or `null`.
+    </ResponseField>
+    <ResponseField name="estilo" type="string | null">
+      Primary style from Discogs, or `null`.
+    </ResponseField>
+    <ResponseField name="imagen_url" type="string | null">
+      Cover image URL hosted on Discogs, or `null`.
+    </ResponseField>
+    <ResponseField name="precio" type="number">
+      Computed retail price in USD, rounded to two decimal places.
+    </ResponseField>
+    <ResponseField name="have" type="integer">
+      Number of Discogs users who have this release in their collection.
+    </ResponseField>
+    <ResponseField name="want" type="integer">
+      Number of Discogs users who want this release.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Recommendation Algorithm
+
+<Accordion title="How recommendations are scored and ranked">
+
+Each candidate release accumulates a **score** (`peso`) starting at 0. After all signals are computed, all candidates are sorted by score descending, and the top 5 are returned. The source release itself is always excluded from results.
+
+**Signal 1 — Last.fm similar artists (+1 per match)**
+
+The Last.fm `artist.getSimilar` method is called with the artist of the source release, requesting up to 5 similar artists. For each similar artist, Discogs is searched for up to 3 of their releases (`per_page=3`). Every release found this way earns **+1 point**.
+
+**Signal 2 — Discogs genre and style matching (+1 per match)**
+
+Discogs is searched for releases sharing the same genre (and style, if available) as the source release, sorted by `have` descending (`per_page=5`). Every release found this way earns **+1 point**.
+
+Because a release can appear in both signals, the maximum unauthenticated score for any single candidate is **+2**.
+
+**Signal 3 — Authenticated user history boost (+1 per genre match)**
+
+If a valid JWT is provided, the server queries the user's browsing history (up to the 20 most recent entries, ordered by `visto_en` descending). For every candidate release whose `genero` matches any genre in that history, the candidate earns an additional **+1 point**.
+
+This means authenticated users can see a maximum score of **+3** per candidate, and results will skew toward genres they have already explored.
+
+**Final sort and slice**
+
+All scored candidates are sorted by `peso` descending. Ties are broken by insertion order (which signal found the release first). The top 5 are returned.
+
+</Accordion>
+
+## Example Requests
+
+**Anonymous request:**
+
+```bash
+curl https://api.vinylvibes.example.com/disco/9579406/recomendaciones
+```
+
+**Authenticated request (personalized):**
+
+```bash
+curl https://api.vinylvibes.example.com/disco/9579406/recomendaciones \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+## Example Response
+
+```json
+[
+  {
+    "discogs_id": "4353497",
+    "titulo": "Wish You Were Here",
+    "artista": "Pink Floyd",
+    "anio": 1975,
+    "genero": "Rock",
+    "estilo": "Prog Rock",
+    "imagen_url": "https://i.discogs.com/wish-you-were-here-cover.jpg",
+    "precio": 34.99,
+    "have": 98400,
+    "want": 44200
+  },
+  {
+    "discogs_id": "16451243",
+    "titulo": "Meddle",
+    "artista": "Pink Floyd",
+    "anio": 1971,
+    "genero": "Rock",
+    "estilo": "Prog Rock",
+    "imagen_url": "https://i.discogs.com/meddle-cover.jpg",
+    "precio": 34.99,
+    "have": 67100,
+    "want": 29800
+  },
+  {
+    "discogs_id": "1535540",
+    "titulo": "The Wall",
+    "artista": "Roger Waters",
+    "anio": 1979,
+    "genero": "Rock",
+    "estilo": "Art Rock",
+    "imagen_url": "https://i.discogs.com/the-wall-cover.jpg",
+    "precio": 34.99,
+    "have": 112300,
+    "want": 53400
+  },
+  {
+    "discogs_id": "2448060",
+    "titulo": "Brain Salad Surgery",
+    "artista": "Emerson, Lake & Palmer",
+    "anio": 1973,
+    "genero": "Rock",
+    "estilo": "Prog Rock",
+    "imagen_url": "https://i.discogs.com/brain-salad-cover.jpg",
+    "precio": 34.99,
+    "have": 29700,
+    "want": 14100
+  },
+  {
+    "discogs_id": "3087867",
+    "titulo": "Fragile",
+    "artista": "Yes",
+    "anio": 1971,
+    "genero": "Rock",
+    "estilo": "Prog Rock",
+    "imagen_url": "https://i.discogs.com/fragile-cover.jpg",
+    "precio": 34.99,
+    "have": 41200,
+    "want": 19600
+  }
+]
+```
+
+## Error Responses
+
+| Status | Error message                                  | Cause                                                        |
+| ------ | ---------------------------------------------- | ------------------------------------------------------------ |
+| `500`  | `"Error al obtener recomendaciones."`          | Network failure, upstream API error, or unexpected exception. |

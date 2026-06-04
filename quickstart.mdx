@@ -1,47 +1,202 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with VinylVibes API in 5 Minutes"
+sidebarTitle: "Quickstart"
+description: "Learn how to register, authenticate, search the vinyl catalog, and place your first order with VinylVibes API in five steps."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+This guide walks you through the full happy path: create an account, log in to get a JWT, search the vinyl catalog, inspect a record's details, and place your first order. By the end you'll have a working token and a confirmed sale ID.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+
+  <Step title="Register">
+    Create a new account by sending your desired username and password. Usernames must be unique; passwords must be at least 6 characters.
 
     ```bash
-    npm install your-package
+    curl -X POST https://your-api.onrender.com/registro \
+      -H "Content-Type: application/json" \
+      -d '{"nombre_usuario": "testuser", "password": "mypassword123"}'
     ```
+
+    **Response `201 Created`**
+
+    ```json
+    {
+      "mensaje": "Usuario creado exitosamente."
+    }
+    ```
+
+    The new account is assigned the `cliente` role automatically. No email verification is required.
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Log in and get your token">
+    Exchange your credentials for a JWT. Store the `token` value — you'll pass it as a Bearer header on every protected request.
 
     ```bash
-    your-cli init
+    curl -X POST https://your-api.onrender.com/login \
+      -H "Content-Type: application/json" \
+      -d '{"nombre_usuario": "testuser", "password": "mypassword123"}'
     ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+    **Response `200 OK`**
+
+    ```json
+    {
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSw...",
+      "nombre": "testuser",
+      "es_admin": false,
+      "es_demo": false
+    }
+    ```
+
+    | Field | Description |
+    |---|---|
+    | `token` | Signed JWT — valid for **7 days** |
+    | `nombre` | Your username as stored in the database |
+    | `es_admin` | `true` only for the `admin` role |
+    | `es_demo` | `true` only for the `demo` read-only role |
+
+    On all subsequent requests to protected endpoints, include:
+
+    ```
+    Authorization: Bearer <token>
+    ```
+
+    Save the token to a shell variable for convenience:
 
     ```bash
-    your-cli start
+    TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSw..."
     ```
   </Step>
+
+  <Step title="Search the catalog">
+    Search the full Discogs catalog by any keyword — artist, album title, label, or genre. No authentication is required for this endpoint.
+
+    ```bash
+    curl "https://your-api.onrender.com/buscar?q=pink+floyd"
+    ```
+
+    **Response `200 OK`**
+
+    ```json
+    {
+      "resultados": [
+        {
+          "discogs_id": "10362301",
+          "titulo": "The Dark Side Of The Moon",
+          "artista": "Pink Floyd",
+          "anio": 1973,
+          "genero": "Rock",
+          "estilo": "Psychedelic Rock",
+          "imagen_url": "https://i.discogs.com/...",
+          "precio": 34.99,
+          "have": 142800,
+          "want": 73500
+        }
+      ],
+      "total": 1842,
+      "paginas": 93
+    }
+    ```
+
+    | Field | Description |
+    |---|---|
+    | `discogs_id` | Discogs release ID — use this to fetch full details |
+    | `titulo` | Album or release title |
+    | `artista` | Primary artist name (disambiguator suffixes like `(2)` are stripped) |
+    | `anio` | Release year, or `null` if unknown |
+    | `genero` | Primary genre from Discogs |
+    | `estilo` | Primary style from Discogs |
+    | `imagen_url` | Cover art URL |
+    | `precio` | Server-calculated price in USD (based on year + popularity) |
+    | `have` | Number of Discogs community members who own this release |
+    | `want` | Number of Discogs community members who want this release |
+
+    Add `&pagina=2` to fetch the next page of results (20 results per page).
+  </Step>
+
+  <Step title="Get a record's details">
+    Fetch the full detail for a specific release by its `discogs_id`. This includes the tracklist, label, country, and a freshly calculated price.
+
+    ```bash
+    curl "https://your-api.onrender.com/disco/10362301"
+    ```
+
+    **Response `200 OK`**
+
+    ```json
+    {
+      "discogs_id": "10362301",
+      "titulo": "The Dark Side Of The Moon",
+      "artista": "Pink Floyd",
+      "anio": 1973,
+      "genero": "Rock",
+      "estilo": "Psychedelic Rock",
+      "imagen_url": "https://i.discogs.com/...",
+      "tracklist": [
+        { "posicion": "A1", "titulo": "Speak To Me", "duracion": "1:30" },
+        { "posicion": "A2", "titulo": "Breathe", "duracion": "2:43" },
+        { "posicion": "B1", "titulo": "Money", "duracion": "6:22" }
+      ],
+      "precio": 34.99,
+      "have": 142800,
+      "want": 73500,
+      "sello": "Harvest",
+      "pais": "UK"
+    }
+    ```
+
+    Detail responses are cached in Redis for **7 days**. The first request hits Discogs directly; subsequent requests are served from cache.
+  </Step>
+
+  <Step title="Place an order">
+    Submit your cart and shipping address to create a confirmed sale. Authentication is required.
+
+    ```bash
+    curl -X POST https://your-api.onrender.com/checkout \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $TOKEN" \
+      -d '{
+        "items": [
+          {
+            "discogs_id": "10362301",
+            "titulo": "The Dark Side Of The Moon",
+            "artista": "Pink Floyd",
+            "cantidad": 1
+          }
+        ],
+        "envio": {
+          "nombre_receptor": "Test User",
+          "calle": "Insurgentes Sur",
+          "numero_ext": "123",
+          "numero_int": "4B",
+          "colonia": "Del Valle",
+          "ciudad": "Ciudad de México",
+          "estado": "CDMX",
+          "codigo_postal": "03100",
+          "referencias": "Blue building, black gate"
+        }
+      }'
+    ```
+
+    **Response `201 Created`**
+
+    ```json
+    {
+      "mensaje": "¡Compra procesada exitosamente!",
+      "id_venta": 42,
+      "total": "34.99"
+    }
+    ```
+
+    <Warning>
+      **Prices are calculated server-side.** The backend queries Discogs for the latest `have`/`want` stats and computes the final price itself. Any `precio` field you include in the request body is silently ignored — you cannot influence the price from the client.
+    </Warning>
+
+    Required fields in each `items` entry: `discogs_id`, `titulo`, `artista`, `cantidad` (positive integer). Required fields in `envio`: `nombre_receptor`, `calle`, `numero_ext`, `colonia`, `ciudad`, `estado`, `codigo_postal`. The fields `numero_int` and `referencias` are optional.
+  </Step>
+
 </Steps>
 
 <Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
-
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+  Want to understand how tokens work, when they expire, and what each user role can access? Head to the [Authentication](/authentication) page for a full breakdown of JWT signing, role permissions, and error responses.
 </Tip>

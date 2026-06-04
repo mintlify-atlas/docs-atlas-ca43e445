@@ -1,0 +1,325 @@
+---
+title: "Admin Sales Management Endpoints"
+sidebarTitle: "Sales"
+description: "List all orders, retrieve an order's full details, or update an order's fulfillment status. Requires admin or demo role for reads, admin for writes."
+---
+
+The admin sales endpoints give administrators visibility into all purchase orders and the ability to advance orders through the fulfillment workflow. Read endpoints are accessible to both `admin` and `demo` roles; the status-update operation is restricted to full `admin` accounts.
+
+---
+
+## GET /admin/ventas
+
+Returns every order in the system, ordered by date descending, with a nested summary of the purchasing customer.
+
+| Property   | Value                              |
+| ---------- | ---------------------------------- |
+| **Method** | `GET`                              |
+| **Path**   | `/admin/ventas`                    |
+| **Auth**   | JWT — `admin` or `demo` role       |
+
+### Request parameters
+
+No query parameters or request body required.
+
+### Response
+
+Returns an array of venta (sale) objects.
+
+<ResponseField name="id_venta" type="integer">
+  Unique identifier for the order.
+</ResponseField>
+
+<ResponseField name="id_cliente" type="integer">
+  Foreign key referencing the purchasing user's `id_usuario`.
+</ResponseField>
+
+<ResponseField name="total" type="number">
+  Total order value in the store's currency, calculated server-side at checkout time.
+</ResponseField>
+
+<ResponseField name="estado" type="string">
+  Current fulfillment status of the order. One of `pendiente`, `pagada`, `enviada`, `entregada`, `cancelada`.
+</ResponseField>
+
+<ResponseField name="fecha" type="datetime">
+  ISO 8601 timestamp of when the order was placed.
+</ResponseField>
+
+<ResponseField name="updated_at" type="datetime">
+  ISO 8601 timestamp of the last status update.
+</ResponseField>
+
+<ResponseField name="cliente" type="object">
+  Nested summary of the customer who placed the order.
+
+  <Expandable title="cliente fields">
+    <ResponseField name="id_usuario" type="integer">
+      The customer's unique user ID.
+    </ResponseField>
+
+    <ResponseField name="nombre" type="string">
+      The customer's username.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example request
+
+```bash
+curl -X GET https://api.vinylvibes.example/admin/ventas \
+  -H "Authorization: Bearer <admin_token>"
+```
+
+### Example response
+
+```json
+[
+  {
+    "id_venta": 42,
+    "id_cliente": 7,
+    "total": "89.97",
+    "estado": "enviada",
+    "fecha": "2025-01-10T18:34:00.000Z",
+    "updated_at": "2025-01-12T09:00:00.000Z",
+    "cliente": {
+      "id_usuario": 7,
+      "nombre": "crate_digger"
+    }
+  }
+]
+```
+
+### Error responses
+
+| Status | Description                                              |
+| ------ | -------------------------------------------------------- |
+| `401`  | Missing or invalid JWT token.                            |
+| `403`  | Authenticated user does not have `admin` or `demo` role. |
+| `500`  | Internal server error while querying the database.       |
+
+---
+
+## GET /admin/ventas/:id
+
+Returns the complete record for a single order, including all line items and the full shipping address.
+
+| Property   | Value                              |
+| ---------- | ---------------------------------- |
+| **Method** | `GET`                              |
+| **Path**   | `/admin/ventas/:id`                |
+| **Auth**   | JWT — `admin` or `demo` role       |
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The unique identifier (`id_venta`) of the order to retrieve.
+</ParamField>
+
+### Response
+
+Returns the full venta object, including top-level fields from `GET /admin/ventas` plus the expanded `lineas` and `envio` relationships.
+
+<ResponseField name="lineas" type="array">
+  Ordered line items included in this purchase.
+
+  <Expandable title="lineas item fields">
+    <ResponseField name="id_linea" type="integer">
+      Unique identifier for the line item.
+    </ResponseField>
+
+    <ResponseField name="discogs_id" type="string">
+      Discogs release ID for the vinyl record.
+    </ResponseField>
+
+    <ResponseField name="titulo" type="string">
+      Album/release title as captured at checkout.
+    </ResponseField>
+
+    <ResponseField name="artista" type="string">
+      Artist name as captured at checkout.
+    </ResponseField>
+
+    <ResponseField name="cantidad" type="integer">
+      Number of units purchased.
+    </ResponseField>
+
+    <ResponseField name="p_unitario" type="number">
+      Per-unit price at the time of purchase, computed server-side from Discogs popularity data.
+    </ResponseField>
+
+    <ResponseField name="subtotal" type="number">
+      `cantidad × p_unitario` for this line.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="envio" type="object">
+  Full shipping address recorded at checkout.
+
+  <Expandable title="envio fields">
+    <ResponseField name="nombre_receptor" type="string">
+      Full name of the person receiving the package.
+    </ResponseField>
+
+    <ResponseField name="calle" type="string">
+      Street name.
+    </ResponseField>
+
+    <ResponseField name="numero_ext" type="string">
+      Exterior building/street number.
+    </ResponseField>
+
+    <ResponseField name="numero_int" type="string">
+      Interior apartment or unit number. May be `null` if not provided.
+    </ResponseField>
+
+    <ResponseField name="colonia" type="string">
+      Neighborhood or district (colonia).
+    </ResponseField>
+
+    <ResponseField name="ciudad" type="string">
+      City.
+    </ResponseField>
+
+    <ResponseField name="estado" type="string">
+      State or province.
+    </ResponseField>
+
+    <ResponseField name="codigo_postal" type="string">
+      Postal/ZIP code.
+    </ResponseField>
+
+    <ResponseField name="referencias" type="string">
+      Optional delivery notes or landmark references. May be `null`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example request
+
+```bash
+curl -X GET https://api.vinylvibes.example/admin/ventas/42 \
+  -H "Authorization: Bearer <admin_token>"
+```
+
+### Example response
+
+```json
+{
+  "id_venta": 42,
+  "id_cliente": 7,
+  "total": "89.97",
+  "estado": "enviada",
+  "fecha": "2025-01-10T18:34:00.000Z",
+  "updated_at": "2025-01-12T09:00:00.000Z",
+  "cliente": {
+    "id_usuario": 7,
+    "nombre": "crate_digger"
+  },
+  "lineas": [
+    {
+      "id_linea": 101,
+      "discogs_id": "1234567",
+      "titulo": "The Dark Side of the Moon",
+      "artista": "Pink Floyd",
+      "cantidad": 1,
+      "p_unitario": "34.99",
+      "subtotal": "34.99"
+    },
+    {
+      "id_linea": 102,
+      "discogs_id": "7654321",
+      "titulo": "Rumours",
+      "artista": "Fleetwood Mac",
+      "cantidad": 2,
+      "p_unitario": "27.49",
+      "subtotal": "54.98"
+    }
+  ],
+  "envio": {
+    "nombre_receptor": "Valentina Ríos",
+    "calle": "Av. Insurgentes Sur",
+    "numero_ext": "1602",
+    "numero_int": "4B",
+    "colonia": "Crédito Constructor",
+    "ciudad": "Ciudad de México",
+    "estado": "CDMX",
+    "codigo_postal": "03940",
+    "referencias": "Edificio azul frente a la farmacia"
+  }
+}
+```
+
+### Error responses
+
+| Status | Description                                                |
+| ------ | ---------------------------------------------------------- |
+| `401`  | Missing or invalid JWT token.                              |
+| `403`  | Authenticated user does not have `admin` or `demo` role.   |
+| `404`  | No order found with the given `id_venta`.                  |
+| `500`  | Internal server error while querying the database.         |
+
+---
+
+## PUT /admin/ventas/:id/estado
+
+Updates the fulfillment status of an existing order.
+
+| Property   | Value                              |
+| ---------- | ---------------------------------- |
+| **Method** | `PUT`                              |
+| **Path**   | `/admin/ventas/:id/estado`         |
+| **Auth**   | JWT — `admin` role only            |
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The unique identifier (`id_venta`) of the order to update.
+</ParamField>
+
+### Body parameters
+
+<ParamField body="estado" type="string" required>
+  The new fulfillment status. Must be one of `pendiente`, `pagada`, `enviada`, `entregada`, `cancelada`.
+</ParamField>
+
+### Valid states
+
+| Estado       | Description                                                                 |
+| ------------ | --------------------------------------------------------------------------- |
+| `pendiente`  | Order created; payment not yet confirmed.                                   |
+| `pagada`     | Payment confirmed. This is the **initial state** assigned at checkout.      |
+| `enviada`    | Order has been dispatched to the carrier.                                   |
+| `entregada`  | Order received by the customer.                                             |
+| `cancelada`  | Order was cancelled.                                                        |
+
+<Tip>
+  Orders created through `/checkout` always start in the `pagada` state because payment is assumed confirmed at submission time. Use `pendiente` only when manually creating or re-opening an order outside the normal checkout flow.
+</Tip>
+
+### Response
+
+```json
+{
+  "mensaje": "Estado actualizado a \"enviada\"."
+}
+```
+
+### Example request
+
+```bash
+curl -X PUT https://api.vinylvibes.example/admin/ventas/42/estado \
+  -H "Authorization: Bearer <admin_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"estado": "enviada"}'
+```
+
+### Error responses
+
+| Status | Description                                                                 |
+| ------ | --------------------------------------------------------------------------- |
+| `400`  | `estado` is missing or not one of the five valid values.                    |
+| `401`  | Missing or invalid JWT token.                                               |
+| `403`  | Authenticated user is not `admin`, or is a `demo` account (write blocked).  |
+| `500`  | Internal server error while updating the database.                          |

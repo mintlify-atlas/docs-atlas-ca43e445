@@ -1,0 +1,73 @@
+---
+title: "GET /disco/:id/historia — Get Album Biography from Last.fm"
+sidebarTitle: "GET /disco/:id/historia"
+description: "Returns the album biography text from Last.fm for a Discogs release ID. Tries Spanish first, then falls back to English if unavailable."
+---
+
+Retrieve the album biography (wiki content) for a release from the **Last.fm API**, identified by its Discogs release ID. The server resolves the artist and album title by looking up the release on Discogs (or reusing a cached copy from a prior `GET /disco/:id` call), then queries Last.fm's `album.getInfo` method.
+
+Language preference is handled automatically: **Spanish (`es`) is tried first**. If Last.fm returns no content, or content shorter than 50 characters, the request falls back to **English (`en`)**. If neither language yields a usable biography, the endpoint returns a `404`.
+
+All HTML links and tags are stripped from the biography text before it is returned — only plain prose is delivered to the client. Results are cached in Redis under `historia:{id}` for **7 days**.
+
+<Warning>
+  Last.fm biography availability depends on community contributions. Many releases —
+  especially obscure pressings or reissues — may not have a biography in either
+  language, resulting in a `404`.
+</Warning>
+
+## Endpoint
+
+| Property       | Value                           |
+| -------------- | ------------------------------- |
+| **Method**     | `GET`                           |
+| **Path**       | `/disco/:id/historia`           |
+| **Auth**       | None                            |
+| **Cache TTL**  | 7 days                          |
+
+## Request Parameters
+
+<ParamField path="id" type="string" required>
+  The Discogs release ID. Used to resolve the album title and artist name before
+  querying Last.fm. Example: `9579406`.
+</ParamField>
+
+## Response Fields
+
+<ResponseField name="cuerpo" type="string" required>
+  The biography text from Last.fm's album wiki. HTML anchor tags and all other
+  HTML markup are stripped. Plain text only, may contain newlines.
+</ResponseField>
+
+## Example Request
+
+```bash
+curl https://api.vinylvibes.example.com/disco/9579406/historia
+```
+
+## Example Response
+
+```json
+{
+  "cuerpo": "The Dark Side of the Moon is the eighth studio album by the English rock band Pink Floyd, released on 1 March 1973 by Harvest Records. Developed during live performances before recording began, the album was conceptually focused on the pressures that can cause mental illness, as referenced in the album's title. Themes of greed, the passage of time, and mental illness are prevalent throughout...\n\nIt reached number one in the United States, staying on the Billboard 200 chart for 741 weeks between 1973 and 1988..."
+}
+```
+
+## Language Fallback Behavior
+
+The endpoint queries Last.fm twice at most, in this order:
+
+| Attempt | `lang` Parameter | Condition to proceed to next |
+| ------- | ---------------- | ----------------------------- |
+| 1       | `es`             | No content, or content < 50 chars |
+| 2       | `en`             | Returned if Spanish fails     |
+
+If both attempts return no content or content under 50 characters, the result is `null` and the endpoint responds with `404`.
+
+## Error Responses
+
+| Status | Error message                                       | Cause                                                                                             |
+| ------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `404`  | `"Disco no encontrado."`                            | The Discogs API returned a non-OK response when resolving the release by ID.                      |
+| `404`  | `"No hay historia disponible para este disco."`     | Last.fm returned no biography in Spanish or English, or all content was shorter than 50 chars.    |
+| `500`  | `"Error al obtener la historia."`                   | Network failure, Last.fm API error, or unexpected server exception.                               |
