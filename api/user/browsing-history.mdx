@@ -107,7 +107,7 @@ No query parameters. The user is identified entirely from the JWT payload.
 
 Returns a JSON array of up to 50 history objects, ordered newest first.
 
-<ResponseField name="id" type="integer">
+<ResponseField name="id_historial" type="integer">
   Primary key of the history row.
 </ResponseField>
 
@@ -151,7 +151,7 @@ curl https://api.vinylvibes.example/historial \
 ```json
 [
   {
-    "id": 88,
+    "id_historial": 88,
     "id_usuario": 5,
     "discogs_id": "249504",
     "titulo": "The Dark Side of the Moon",
@@ -161,7 +161,7 @@ curl https://api.vinylvibes.example/historial \
     "visto_en": "2024-11-03T18:45:00.000Z"
   },
   {
-    "id": 74,
+    "id_historial": 74,
     "id_usuario": 5,
     "discogs_id": "870745",
     "titulo": "Kind of Blue",

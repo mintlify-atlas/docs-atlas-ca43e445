@@ -41,9 +41,9 @@ Search the Discogs database for vinyl releases by any keyword — artist name, a
       only the portion after the separator is returned here.
     </ResponseField>
     <ResponseField name="artista" type="string | null">
-      Artist name extracted from the Discogs title. Numeric disambiguation suffixes
-      such as `(2)` or `(3)` are automatically stripped. `null` when no artist
-      separator is present in the raw title.
+      Artist name extracted from the Discogs title (the portion before the first
+      ` - ` separator). `null` when no ` - ` separator is present in the raw
+      Discogs title string.
     </ResponseField>
     <ResponseField name="anio" type="integer | null">
       Release year as a four-digit integer, or `null` if not listed on Discogs.

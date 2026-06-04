@@ -40,7 +40,8 @@ The response is a **JSON array** of up to 20 release objects. Each object has th
       Album or release title.
     </ResponseField>
     <ResponseField name="artista" type="string | null">
-      Artist name with Discogs disambiguation suffixes stripped, or `null`.
+      Artist name extracted from the Discogs title (the portion before the first
+      ` - ` separator), or `null` when no separator is present.
     </ResponseField>
     <ResponseField name="anio" type="integer | null">
       Release year as a four-digit integer, or `null`.

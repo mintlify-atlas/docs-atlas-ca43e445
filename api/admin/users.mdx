@@ -1,7 +1,7 @@
 ---
-title: "Admin User Management Endpoints"
+title: "Admin User Management: List, Role, and Delete Users"
 sidebarTitle: "Users"
-description: "List all users, change a user's role, or delete a user. Requires admin or demo role; write operations require full admin."
+description: "List all registered users, update a user's role, or delete an account. Read access requires admin or demo role; write operations require full admin."
 ---
 
 The admin user endpoints let administrators inspect and manage VinylVibes user accounts. All three endpoints require at least `admin` or `demo` role; the two write operations (`PUT`, `DELETE`) are blocked for `demo` accounts, which are read-only by design.

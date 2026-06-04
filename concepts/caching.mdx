@@ -1,7 +1,7 @@
 ---
-title: "Redis Caching Strategy in VinylVibes API"
+title: "VinylVibes API Redis Caching Strategy and TTL Reference"
 sidebarTitle: "Caching"
-description: "VinylVibes caches all Discogs, Last.fm, and YouTube responses in Redis with per-resource TTLs ranging from 1 hour to 7 days."
+description: "VinylVibes caches Discogs, Last.fm, and YouTube responses in Redis. TTLs range from 1 hour for search to 7 days for release details, history, and video."
 ---
 
 VinylVibes uses Redis to cache all external API responses. This protects the rate limits of three upstream services — Discogs (60 req/min), Last.fm (5 req/s), and YouTube Data API (10,000 units/day) — and significantly reduces response latency for repeat queries. Once a result is in cache, subsequent requests for the same resource return in milliseconds without touching any external API.

@@ -47,7 +47,8 @@ Browse the Discogs catalog filtered to a specific genre. Results are sorted by `
       Album or release title.
     </ResponseField>
     <ResponseField name="artista" type="string | null">
-      Artist name with Discogs disambiguation suffixes stripped, or `null`.
+      Artist name extracted from the Discogs title (the portion before the first
+      ` - ` separator), or `null` when no separator is present.
     </ResponseField>
     <ResponseField name="anio" type="integer | null">
       Release year as a four-digit integer, or `null`.

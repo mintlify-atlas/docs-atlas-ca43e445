@@ -1,5 +1,5 @@
 ---
-title: "VinylVibes API Architecture and Infrastructure"
+title: "VinylVibes API Architecture and Infrastructure Overview"
 sidebarTitle: "Architecture"
 description: "How VinylVibes API is structured: Express middleware stack, PostgreSQL via Prisma, Redis caching, and three external API integrations."
 ---
@@ -11,14 +11,14 @@ VinylVibes API is a single-file Express server (`index.js`) that handles routing
 Every incoming HTTP request passes through the same ordered chain before a response is sent.
 
 <Steps>
-  <Step title="Global Rate Limiter">
-    `express-rate-limit` checks the caller's IP against the global window (100 requests per minute). Requests that exceed the limit receive an immediate HTTP 429 response and go no further.
-  </Step>
   <Step title="CORS">
     The CORS middleware validates the request `Origin` against the comma-separated list in `CORS_ORIGIN`. If the list is empty, all origins are allowed. Invalid origins are rejected before the route handler runs.
   </Step>
   <Step title="JSON Body Parser">
     `express.json()` deserializes the request body so route handlers receive plain JavaScript objects.
+  </Step>
+  <Step title="Global Rate Limiter">
+    `express-rate-limit` checks the caller's IP against the global window (100 requests per minute). Requests that exceed the limit receive an immediate HTTP 429 response and go no further.
   </Step>
   <Step title="Route Handler">
     Express matches the request path and HTTP method to the appropriate handler. Auth-protected routes also run `verificarToken` (and optionally `soloAdmin`) before proceeding.

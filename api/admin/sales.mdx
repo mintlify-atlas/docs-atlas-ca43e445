@@ -1,7 +1,7 @@
 ---
-title: "Admin Sales Management Endpoints"
+title: "Admin Sales Management: Orders and Fulfillment Status"
 sidebarTitle: "Sales"
-description: "List all orders, retrieve an order's full details, or update an order's fulfillment status. Requires admin or demo role for reads, admin for writes."
+description: "List all orders, retrieve full order details, or update fulfillment status. Read access requires admin or demo role; write operations require full admin."
 ---
 
 The admin sales endpoints give administrators visibility into all purchase orders and the ability to advance orders through the fulfillment workflow. Read endpoints are accessible to both `admin` and `demo` roles; the status-update operation is restricted to full `admin` accounts.
@@ -46,10 +46,6 @@ Returns an array of venta (sale) objects.
   ISO 8601 timestamp of when the order was placed.
 </ResponseField>
 
-<ResponseField name="updated_at" type="datetime">
-  ISO 8601 timestamp of the last status update.
-</ResponseField>
-
 <ResponseField name="cliente" type="object">
   Nested summary of the customer who placed the order.
 
@@ -81,7 +77,6 @@ curl -X GET https://api.vinylvibes.example/admin/ventas \
     "total": "89.97",
     "estado": "enviada",
     "fecha": "2025-01-10T18:34:00.000Z",
-    "updated_at": "2025-01-12T09:00:00.000Z",
     "cliente": {
       "id_usuario": 7,
       "nombre": "crate_digger"
@@ -212,7 +207,6 @@ curl -X GET https://api.vinylvibes.example/admin/ventas/42 \
   "total": "89.97",
   "estado": "enviada",
   "fecha": "2025-01-10T18:34:00.000Z",
-  "updated_at": "2025-01-12T09:00:00.000Z",
   "cliente": {
     "id_usuario": 7,
     "nombre": "crate_digger"

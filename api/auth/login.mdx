@@ -1,7 +1,7 @@
 ---
 title: "POST /login — Authenticate and Receive a JWT Token"
-sidebarTitle: "POST /login"
-description: "Log in to VinylVibes with username and password. Returns a signed JWT token valid for 7 days plus user role flags."
+sidebarTitle: "Login"
+description: "Authenticate a VinylVibes user with username and password. Returns a signed JWT valid for 7 days, including admin and demo read-only role flags."
 ---
 
 `POST /login` authenticates a user and returns a signed JWT token. The token encodes the user's **ID**, **username**, and **role** and is valid for **7 days**. Once obtained, send it as `Authorization: Bearer <token>` on all protected endpoints.

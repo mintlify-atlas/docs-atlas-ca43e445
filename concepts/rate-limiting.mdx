@@ -1,7 +1,7 @@
 ---
-title: "Rate Limiting in VinylVibes API"
+title: "VinylVibes API Rate Limiting: Global and Auth-Endpoint Rules"
 sidebarTitle: "Rate Limiting"
-description: "VinylVibes enforces a 100 req/min global limit and a stricter 10 req/15 min limit on auth endpoints to prevent abuse."
+description: "VinylVibes API enforces a 100 req/min global limit and a 10 req/15 min auth-specific limit, blocking abusive clients with HTTP 429 before any handler runs."
 ---
 
 VinylVibes uses `express-rate-limit` to enforce two tiers of rate limiting — global and auth-specific — and returns standard `RateLimit-*` headers on every response. The middleware runs early in the Express stack, before route handlers, so rate-limited requests are rejected without touching the database or external APIs.

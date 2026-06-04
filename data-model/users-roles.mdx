@@ -1,7 +1,7 @@
 ---
-title: "User Roles and Permissions in VinylVibes API"
+title: "User Roles and Access Permissions in VinylVibes API"
 sidebarTitle: "Roles"
-description: "VinylVibes has four user roles: cliente, vendedor, admin, and demo. Each role controls access to endpoints and write operations."
+description: "VinylVibes defines four user roles: cliente, vendedor, admin, and demo. Each role controls which endpoints and write operations are accessible."
 ---
 
 VinylVibes API uses a simple **role-based access control** system stored in the `usuario.rol` column. Every JWT token issued by `POST /login` encodes the user's current role alongside their ID and username. On protected endpoints, middleware decodes the token and inspects the role before allowing the request to proceed.

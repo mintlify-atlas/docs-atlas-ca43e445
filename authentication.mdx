@@ -1,14 +1,14 @@
 ---
-title: "Authenticate with VinylVibes API Using JWT"
+title: "VinylVibes API Authentication: JWT Tokens and Roles"
 sidebarTitle: "Authentication"
-description: "VinylVibes API uses JWT bearer tokens for authentication. Tokens are issued at login, expire in 7 days, and encode user ID, name, and role."
+description: "VinylVibes API uses JWT bearer tokens for authentication. Tokens are issued at login, expire in 7 days, and encode the user ID, username, and role."
 ---
 
 VinylVibes API uses **JSON Web Tokens (JWT)** for authentication. When you log in, the server signs a token with `JWT_SECRET` and returns it to you. Every subsequent request to a protected endpoint must include that token in the `Authorization` header. Tokens carry a payload of `{id, nombre, rol}` and expire after **7 days**.
 
 ## Obtaining a token
 
-Send your credentials to `POST /login`. A stricter rate limit applies to this endpoint — a maximum of **10 attempts per 15 minutes** per IP.
+Send your credentials to `POST /login`. A stricter rate limit applies to both auth endpoints (`/login` and `/registro`) — a maximum of **10 attempts per 15 minutes** per IP.
 
 ```bash
 curl -X POST https://your-api.onrender.com/login \

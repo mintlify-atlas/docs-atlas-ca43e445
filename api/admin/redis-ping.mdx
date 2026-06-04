@@ -1,7 +1,7 @@
 ---
-title: "GET /redis-ping — Redis Diagnostics for Admins"
-sidebarTitle: "GET /redis-ping"
-description: "Checks Redis connectivity and returns the count and list of all currently cached keys. Available to admin and demo roles only."
+title: "Redis Diagnostics: Cache Health and Keys Inspector"
+sidebarTitle: "Redis Ping"
+description: "Checks Redis connectivity via PING and returns the total count and a sorted list of all currently cached keys. Accessible to admin and demo roles only."
 ---
 
 `GET /redis-ping` is an administrative diagnostic endpoint that verifies the Redis connection and lists all keys currently stored in the cache. It uses `SCAN` (non-blocking) instead of `KEYS` to safely inspect the keyspace in production, iterating through the store in batches without stalling other requests.

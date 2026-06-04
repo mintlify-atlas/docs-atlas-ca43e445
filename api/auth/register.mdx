@@ -1,7 +1,7 @@
 ---
-title: "POST /registro — Create a New User Account"
-sidebarTitle: "POST /registro"
-description: "Register a new VinylVibes user. Requires a unique username and a password of at least 6 characters. Returns 201 on success."
+title: "POST /registro — Register a New VinylVibes Account"
+sidebarTitle: "Register"
+description: "Register a new VinylVibes user account with a unique username and a password of at least 6 characters. Returns 201 and a confirmation message on success."
 ---
 
 `POST /registro` creates a new user account with the `cliente` role. Usernames must be unique across the system; the provided value is trimmed of surrounding whitespace before any lookup or storage. Passwords are hashed with **bcrypt at 10 rounds** before being written to the database — the plaintext password is never persisted.
